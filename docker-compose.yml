@@ -1,0 +1,95 @@
+name: quotaradar
+
+x-application: &application
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: quotaradar:local
+  restart: unless-stopped
+  environment:
+    DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-unsafe-development-only-change-me}
+    DATABASE_URL: ${DATABASE_URL:-postgresql://quotaradar:quotaradar-dev-only@postgres:5432/quotaradar}
+    REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+    QUOTARADAR_MASTER_KEY_FILE: ${QUOTARADAR_MASTER_KEY_FILE:-/run/secrets/quota_radar_master_key}
+  secrets:
+    - source: quota_radar_master_key
+      target: quota_radar_master_key
+      mode: 0444
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  networks:
+    - backend
+
+services:
+  web:
+    <<: *application
+    command: ["web"]
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/admin/login/', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  bot:
+    <<: *application
+    command: ["bot"]
+
+  worker:
+    <<: *application
+    command: ["worker"]
+
+  beat:
+    <<: *application
+    command: ["beat"]
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: quotaradar
+      POSTGRES_USER: quotaradar
+      POSTGRES_PASSWORD: quotaradar-dev-only
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quotaradar -d quotaradar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - backend
+
+volumes:
+  postgres_data:
+
+networks:
+  backend:
+    driver: bridge
+
+secrets:
+  quota_radar_master_key:
+    file: ./docker/secrets/master.key.example
