@@ -1,0 +1,1 @@
+"""QuotaRadar domain applications."""

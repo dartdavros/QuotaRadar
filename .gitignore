@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Django
+*.log
+db.sqlite3
+staticfiles/
+media/
+celerybeat-schedule*
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+docker/secrets/*.key
+!docker/secrets/master.key.example
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Archives
+*.zip

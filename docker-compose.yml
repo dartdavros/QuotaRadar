@@ -5,6 +5,7 @@ x-application: &application
     context: .
     dockerfile: Dockerfile
   image: quotaradar:local
+  pull_policy: build
   restart: unless-stopped
   environment:
     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-unsafe-development-only-change-me}

@@ -1,0 +1,1 @@
+"""Configuration application tests."""
