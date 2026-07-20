@@ -7,6 +7,8 @@ from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
 
+from apps.monitoring.schedules import DatabasePollingSchedule
+
 from .database import DatabaseUrlError, parse_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -113,7 +115,14 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_ENABLE_UTC = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
-CELERY_BEAT_SCHEDULE: dict[str, object] = {}
+
+CELERY_BEAT_MAX_LOOP_INTERVAL = 5.0
+CELERY_BEAT_SCHEDULE: dict[str, object] = {
+    "poll-sources": {
+        "task": "monitoring.poll_sources",
+        "schedule": DatabasePollingSchedule(),
+    }
+}
 
 LOGGING = {
     "version": 1,

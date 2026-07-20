@@ -1,0 +1,96 @@
+{
+  "data": [
+    {
+      "id": "103",
+      "text": "Short fallback text https://t.co/boost",
+      "note_tweet": {
+        "text": "Weekly Codex limits are 50% higher through August 19 https://t.co/boost",
+        "entities": {
+          "urls": [
+            {
+              "url": "https://t.co/boost",
+              "expanded_url": "https://developers.openai.com/codex/limits"
+            }
+          ]
+        }
+      },
+      "article": {
+        "title": "Temporary quota boost",
+        "preview_text": "The promotion applies to eligible plans."
+      },
+      "created_at": "2026-07-20T10:03:00.000Z",
+      "author_id": "1001",
+      "entities": {
+        "urls": [
+          {
+            "url": "https://t.co/boost",
+            "expanded_url": "https://developers.openai.com/codex/limits"
+          }
+        ]
+      },
+      "referenced_tweets": [
+        {
+          "type": "quoted",
+          "id": "800"
+        }
+      ],
+      "attachments": {
+        "media_keys": [
+          "3_700"
+        ]
+      },
+      "edit_history_tweet_ids": [
+        "103"
+      ]
+    },
+    {
+      "id": "102",
+      "text": "Earlier standalone post",
+      "created_at": "2026-07-20T10:02:00.000Z",
+      "author_id": "1001",
+      "edit_history_tweet_ids": [
+        "102"
+      ]
+    }
+  ],
+  "includes": {
+    "tweets": [
+      {
+        "id": "800",
+        "text": "Original announcement: limits were increased.",
+        "created_at": "2026-07-20T08:00:00.000Z",
+        "author_id": "5005",
+        "entities": {
+          "urls": [
+            {
+              "url": "https://t.co/source",
+              "expanded_url": "https://example.test/original"
+            }
+          ]
+        },
+        "attachments": {
+          "media_keys": [
+            "3_701"
+          ]
+        }
+      }
+    ],
+    "media": [
+      {
+        "media_key": "3_700",
+        "type": "photo",
+        "url": "https://pbs.twimg.com/media/example.jpg",
+        "alt_text": "Chart showing a fifty percent increase in weekly limits"
+      },
+      {
+        "media_key": "3_701",
+        "type": "photo",
+        "url": "https://pbs.twimg.com/media/quoted-example.jpg",
+        "alt_text": "Screenshot of the original quota announcement"
+      }
+    ]
+  },
+  "meta": {
+    "result_count": 2
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "data": [
+    {"id": "1001", "name": "OpenAI Developers", "username": "OpenAIDevs"},
+    {"id": "2002", "name": "Claude Developers", "username": "ClaudeDevs"}
+  ]
+}
