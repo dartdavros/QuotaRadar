@@ -65,6 +65,11 @@ class SourcePost(models.Model):
         choices=SourcePostProcessingStatus.choices,
         default=SourcePostProcessingStatus.RECEIVED,
     )
+    processing_started_at = models.DateTimeField(
+        "Обработка начата",
+        null=True,
+        blank=True,
+    )
     last_error = models.TextField("Последняя ошибка", blank=True)
 
     class Meta:

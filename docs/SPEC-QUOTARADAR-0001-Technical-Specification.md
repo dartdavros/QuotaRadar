@@ -1,7 +1,7 @@
 # SPEC-QUOTARADAR-0001 — Техническая спецификация QuotaRadar
 
-- **Статус:** на утверждение
-- **Версия:** 1.0
+- **Статус:** утверждена и синхронизирована с реализацией
+- **Версия:** 1.1
 - **Дата:** 2026-07-20
 - **Связанный документ:** `ARCH-QUOTARADAR-0001-System-Architecture.md`
 
@@ -178,9 +178,12 @@ Telegram-бот должен поддерживать long polling через `g
 ### FR-011. Доставка
 
 - Релевантное событие отправляется всем активным получателям.
-- Для каждого получателя создаётся отдельная запись `Delivery`.
-- Уникальное ограничение `analysis + target` запрещает повторную отправку.
+- Для каждого получателя создаётся одна запись `Delivery`.
+- Уникальное ограничение `analysis + target` запрещает создание второго журнала доставки.
+- Статус `sent` запрещает повторную отправку после подтверждённого и сохранённого результата.
+- Redis-lock защищает одну запись `Delivery` от штатной параллельной отправки.
 - Ошибка одного получателя не блокирует остальные доставки.
+- При неопределённом исходе `sendMessage` возможна повторная попытка: Telegram Bot API не предоставляет idempotency key, поэтому абсолютная exactly-once гарантия не заявляется.
 
 ### FR-012. Django Admin
 
@@ -342,6 +345,7 @@ anthropic / ClaudeDevs
 | `received_at` | datetime |
 | `raw_data` | JSON |
 | `processing_status` | enum |
+| `processing_started_at` | nullable datetime |
 | `last_error` | text |
 
 Статусы:
@@ -369,6 +373,7 @@ failed
 | `prompt_version` | positive int |
 | `raw_response` | JSON/text |
 | `created_at` | datetime |
+| `delivery_fanout_completed_at` | nullable datetime |
 
 ### 6.7. `DeliveryTarget`
 
@@ -389,6 +394,10 @@ failed
 | `status` | enum |
 | `telegram_message_id` | nullable string |
 | `attempts` | non-negative int |
+| `created_at` | datetime |
+| `updated_at` | datetime |
+| `last_attempt_at` | nullable datetime |
+| `next_attempt_at` | nullable datetime |
 | `sent_at` | nullable datetime |
 | `last_error` | text |
 
@@ -418,18 +427,32 @@ failed
 
 ### `analyze_post(source_post_id)`
 
+- получает Redis-lock для одного поста;
 - нормализует контент;
 - вызывает ИИ через прокси;
 - валидирует JSON;
-- создаёт `Analysis`;
-- при релевантности создаёт задачи доставки.
+- создаёт единственный `Analysis`;
+- при релевантности транзакционно создаёт `Delivery` для всех активных targets и фиксирует `delivery_fanout_completed_at`;
+- публикует задачи доставки только после commit транзакции;
+- очищает `processing_started_at` при завершении.
 
 ### `deliver_analysis(analysis_id, target_id)`
 
-- проверяет отсутствие успешной доставки;
+- загружает единственную запись `Delivery` для пары;
+- получает Redis-lock для этой доставки;
+- прекращает работу для `sent` и `failed`;
 - формирует итоговый текст;
 - вызывает Telegram Bot API через прокси;
-- сохраняет результат.
+- сохраняет попытку и результат.
+
+### `recover_orphaned_work`
+
+- запускается Celery Beat каждые 300 секунд;
+- завершает fan-out релевантных успешных `Analysis`, у которых отсутствует `delivery_fanout_completed_at`;
+- повторно публикует устаревшие `queued` анализы;
+- повторно публикует устаревшие `pending` доставки только после `next_attempt_at`;
+- не восстанавливает `sent` и `failed`;
+- использует safety timeout согласно ADR-0002.
 
 
 ## 8. Ошибки и повторные попытки
@@ -462,35 +485,45 @@ failed
 
 ```yaml
 services:
+  init:
   web:
   bot:
   worker:
   beat:
+  test:
   postgres:
   redis:
 ```
+
+`test` включается профилем `tools` и не является production runtime-сервисом.
 
 Требования:
 
 - `web`, `bot`, `worker`, `beat` собираются из одного Dockerfile;
 - PostgreSQL использует persistent volume;
+- Redis использует persistent volume и AOF `appendfsync everysec`;
 - master key монтируется в прикладные контейнеры read-only;
 - healthcheck PostgreSQL и Redis используется перед запуском прикладных процессов;
-- миграции выполняются отдельной командой развертывания или entrypoint до запуска процессов;
+- one-shot сервис `init` выполняет checks, миграции, `collectstatic` и deployment checks;
+- `web`, `bot`, `worker`, `beat` зависят от успешного завершения `init`;
+- `init` и `web` используют общий `static_data` volume для результатов `collectstatic`;
 - в репозитории присутствует `.env.example` только для инфраструктурных параметров без реальных секретов;
 - прикладные секреты вводятся через Django Admin после первоначального запуска.
 
-Минимальные bootstrap-параметры вне PostgreSQL:
+Пользовательские bootstrap-параметры вне PostgreSQL:
 
 ```text
 DJANGO_SECRET_KEY
-DATABASE_URL
-REDIS_URL
-QUOTARADAR_MASTER_KEY_FILE
-DJANGO_SUPERUSER bootstrap-параметры или отдельная команда создания
+DJANGO_ALLOWED_HOSTS
+QUOTARADAR_WEB_BIND_ADDRESS
+POSTGRES_DB
+POSTGRES_USER
+POSTGRES_PASSWORD
 ```
 
-Эти значения нужны до доступа Django к базе и не являются управляемыми секретами QuotaRadar.
+Docker Compose задаёт внутренние `POSTGRES_HOST`, `POSTGRES_PORT`, `REDIS_URL` и `QUOTARADAR_MASTER_KEY_FILE`. Master key создаётся локальным скриптом и подключается как read-only file secret. Django также поддерживает `DATABASE_URL` вне Compose, причём он имеет приоритет над дискретными PostgreSQL-параметрами.
+
+Superuser создаётся отдельной воспроизводимой командой и не требует bootstrap-credentials в `.env`.
 
 ## 10. Нефункциональные требования
 
@@ -500,7 +533,7 @@ DJANGO_SUPERUSER bootstrap-параметры или отдельная кома
 
 ### NFR-002. Идемпотентность
 
-Повторный запуск любой задачи не должен создавать повторные анализы или доставки.
+Повторный запуск любой задачи не должен создавать повторные `Analysis` или `Delivery`. Подтверждённо успешная доставка не отправляется повторно. Для неопределённого результата Telegram действует ограничение ADR-0002.
 
 ### NFR-003. Безопасность
 
@@ -512,14 +545,22 @@ DJANGO_SUPERUSER bootstrap-параметры или отдельная кома
 
 ### NFR-004. Наблюдаемость
 
-Структурированные логи должны содержать:
+Структурированные JSON-логи должны содержать применимые поля:
 
+- timestamp;
+- level и logger;
+- event;
 - task ID;
 - source ID;
+- internal source post ID, если X Post ID недоступен в recovery-контексте;
 - X Post ID;
 - analysis ID;
 - delivery target ID;
-- HTTP status без тела, содержащего секреты.
+- delivery ID;
+- status;
+- error type.
+
+Тела HTTP-запросов и ответов не логируются. Итоговая JSON-строка проходит редактирование известных секретов и credentials.
 
 ### NFR-005. Производительность
 
@@ -555,8 +596,10 @@ DJANGO_SUPERUSER bootstrap-параметры или отдельная кома
 10. Релевантный пост формирует русскоязычное сообщение со ссылкой на X.
 11. Сообщение успешно публикуется в настроенный канал.
 12. Пользователь получает личные уведомления после `/start` и перестаёт получать после `/stop`.
-13. Повторная обработка одного X Post ID не создаёт повторную Telegram-доставку.
+13. Повторная обработка одного X Post ID не создаёт новую запись Telegram-доставки и не переотправляет сохранённо успешную доставку.
 14. В логах отсутствуют Telegram token, X token, LLM API key и proxy URL.
+15. Устаревшие `queued` и `pending` записи восстанавливаются периодической задачей согласно ADR-0002.
+16. PostgreSQL и Redis integration tests проходят в Docker Compose/GitHub Actions.
 
 ## 13. Официальные технические источники
 

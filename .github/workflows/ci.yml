@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Prepare isolated CI bootstrap files
+        shell: bash
+        run: |
+          cp .env.example .env
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.env')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('replace-with-a-long-random-value', 'ci-only-django-secret-key')
+          text = text.replace('replace-with-a-long-random-password', 'ci-only-postgres-password')
+          path.write_text(text, encoding='utf-8')
+          PY
+          python3 scripts/generate_master_key.py
+
+      - name: Validate Docker Compose configuration
+        run: docker compose --profile tools config --quiet
+
+      - name: Build application image
+        run: docker compose --profile tools build
+
+      - name: Check for missing migrations
+        run: >-
+          docker compose --profile tools run --rm test
+          python manage.py makemigrations --check --dry-run
+
+      - name: Run PostgreSQL and Redis test suite
+        run: docker compose --profile tools run --rm test
+
+      - name: Show service logs after failure
+        if: failure()
+        run: docker compose --profile tools logs --no-color
+
+      - name: Stop CI stack
+        if: always()
+        run: docker compose --profile tools down --volumes --remove-orphans

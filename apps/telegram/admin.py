@@ -28,9 +28,11 @@ class DeliveryAdmin(admin.ModelAdmin):
         "status",
         "attempts",
         "telegram_message_id",
+        "last_attempt_at",
+        "next_attempt_at",
         "sent_at",
     )
-    list_filter = ("status", "target__target_type", "sent_at")
+    list_filter = ("status", "target__target_type", "sent_at", "created_at")
     search_fields = (
         "analysis__source_post__external_id",
         "target__telegram_chat_id",
@@ -42,6 +44,10 @@ class DeliveryAdmin(admin.ModelAdmin):
         "status",
         "telegram_message_id",
         "attempts",
+        "created_at",
+        "updated_at",
+        "last_attempt_at",
+        "next_attempt_at",
         "sent_at",
         "last_error",
     )

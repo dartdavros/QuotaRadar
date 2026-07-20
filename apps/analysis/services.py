@@ -73,8 +73,11 @@ def save_successful_analysis(
         if payload.is_relevant
         else SourcePostProcessingStatus.ANALYZED_IRRELEVANT
     )
+    source_post.processing_started_at = None
     source_post.last_error = ""
-    source_post.save(update_fields=("processing_status", "last_error"))
+    source_post.save(
+        update_fields=("processing_status", "processing_started_at", "last_error")
+    )
     return PersistedAnalysis(analysis=analysis, created=created)
 
 
@@ -117,6 +120,9 @@ def save_failed_analysis(
     analysis.save()
 
     source_post.processing_status = SourcePostProcessingStatus.FAILED
+    source_post.processing_started_at = None
     source_post.last_error = error
-    source_post.save(update_fields=("processing_status", "last_error"))
+    source_post.save(
+        update_fields=("processing_status", "processing_started_at", "last_error")
+    )
     return analysis

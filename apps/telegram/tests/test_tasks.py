@@ -1,7 +1,9 @@
 from contextlib import contextmanager
+from datetime import timedelta
 from unittest.mock import Mock, patch
 
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.configuration.models import SystemConfiguration
 from apps.telegram.client import (
@@ -90,8 +92,23 @@ class DeliverAnalysisTaskTests(TestCase):
 
         self.assertEqual(retry.call_args.kwargs["countdown"], 11)
         self.delivery.refresh_from_db()
-        self.assertEqual(self.delivery.status, DeliveryStatus.FAILED)
+        self.assertEqual(self.delivery.status, DeliveryStatus.PENDING)
         self.assertEqual(self.delivery.attempts, 1)
+        self.assertIsNotNone(self.delivery.next_attempt_at)
+        self.assertGreater(self.delivery.next_attempt_at, timezone.now())
+
+    @patch("apps.telegram.tasks.delivery_send_lock", acquired_lock)
+    @patch("apps.telegram.tasks.TelegramBotApiClient")
+    def test_delivery_does_not_run_before_scheduled_retry(
+        self, client_class: Mock
+    ) -> None:
+        self.delivery.next_attempt_at = timezone.now() + timedelta(minutes=5)
+        self.delivery.save(update_fields=("next_attempt_at", "updated_at"))
+
+        result = deliver_analysis.run(self.analysis.pk, self.target.pk)
+
+        self.assertEqual(result["status"], "retry_scheduled")
+        client_class.assert_not_called()
 
     @patch("apps.telegram.tasks.delivery_send_lock", acquired_lock)
     @patch("apps.telegram.tasks.TelegramBotApiClient")

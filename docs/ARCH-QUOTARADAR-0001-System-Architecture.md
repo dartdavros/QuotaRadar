@@ -1,7 +1,7 @@
 # ARCH-QUOTARADAR-0001 — Архитектура системы QuotaRadar
 
-- **Статус:** на утверждение
-- **Версия:** 1.0
+- **Статус:** утверждена и синхронизирована с реализацией
+- **Версия:** 1.1
 - **Дата:** 2026-07-20
 - **Язык продукта:** русский
 
@@ -46,15 +46,17 @@ QuotaRadar автоматически отслеживает новые публ
 Система разворачивается единым Docker Compose-контуром.
 
 ```text
+init      — one-shot checks, миграции и static files
 web       — Django Admin и служебный HTTP-процесс
 bot       — Telegram long polling и команды пользователей
 worker    — Celery Worker
 beat      — Celery Beat
+test      — PostgreSQL/Redis integration tests в профиле tools
 postgres  — PostgreSQL
-redis     — брокер Celery и служебные блокировки
+redis     — persistent Celery broker, result backend и distributed locks
 ```
 
-Контейнеры `web`, `bot`, `worker` и `beat` используют один Docker-образ Django-приложения и одну кодовую базу.
+Контейнеры `init`, `web`, `bot`, `worker`, `beat` и `test` используют один Docker-образ Django-приложения и одну кодовую базу. Runtime-процессы стартуют только после healthcheck PostgreSQL/Redis и успешного завершения `init`. Результат `collectstatic` передаётся `web` через общий named volume `static_data`.
 
 ## 5. Общая схема взаимодействия
 
@@ -245,7 +247,9 @@ proxy_url
 - `published_at`;
 - `received_at`;
 - `raw_data`;
-- `processing_status`.
+- `processing_status`;
+- `processing_started_at`;
+- `last_error`.
 
 `external_id` уникален.
 
@@ -261,7 +265,8 @@ proxy_url
 - `model`;
 - `prompt_version`;
 - `raw_response`;
-- `created_at`.
+- `created_at`;
+- `delivery_fanout_completed_at`.
 
 ### `DeliveryTarget`
 
@@ -277,6 +282,10 @@ proxy_url
 - `status`;
 - `telegram_message_id`;
 - `attempts`;
+- `created_at`;
+- `updated_at`;
+- `last_attempt_at`;
+- `next_attempt_at`;
 - `sent_at`;
 - `last_error`.
 
@@ -309,12 +318,21 @@ https://user:password@host:port
 
 ## 11. Надёжность
 
-- уникальность X Post ID предотвращает повторную обработку;
-- уникальность `analysis + target` предотвращает повторную доставку;
+- уникальность X Post ID предотвращает создание повторного `SourcePost`;
+- one-to-one `SourcePost → Analysis` предотвращает создание повторного анализа;
+- уникальность `analysis + target` предотвращает создание повторного журнала доставки;
+- статусы `sent` и `failed` не отправляются автоматически повторно;
+- polling источника, анализ поста и отправка доставки защищаются Redis-lock;
 - временные ошибки X, Telegram и ИИ обрабатываются Celery retry;
 - `429` X обрабатывается с учётом `x-rate-limit-reset`;
 - ошибка одного Telegram-получателя не блокирует остальных;
-- задачи мониторинга одного источника защищаются от параллельного запуска Redis-lock.
+- Redis использует named volume и AOF;
+- Celery использует late acknowledgement, reject on worker lost и visibility timeout;
+- создание `Delivery` для релевантного `Analysis` завершается транзакционным маркером `delivery_fanout_completed_at`;
+- Celery Beat сначала завершает потерянный fan-out релевантных анализов, затем восстанавливает устаревшие `queued` посты и `pending` доставки по данным PostgreSQL, соблюдая `next_attempt_at`;
+- точные thresholds и статусная модель определены в `ADR-QUOTARADAR-0002`.
+
+Telegram Bot API не предоставляет idempotency key для `sendMessage`. Поэтому после сохранённого `sent` повторная отправка исключается, но при аварии между принятием сообщения Telegram и фиксацией результата в PostgreSQL теоретически возможен дубль. Абсолютная exactly-once гарантия не заявляется.
 
 ## 12. Границы системы
 
@@ -330,7 +348,10 @@ https://user:password@host:port
 - зашифрованные и видимые в админке секреты;
 - единый прокси для X, Telegram и ИИ;
 - Docker Compose;
-- PostgreSQL, Celery и Redis.
+- PostgreSQL, Celery и persistent Redis;
+- GitHub Actions CI;
+- структурированные JSON-логи;
+- reconciliation потерянных задач согласно ADR-0002.
 
 Не входят:
 

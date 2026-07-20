@@ -71,6 +71,7 @@ class SourcePostAdmin(admin.ModelAdmin):
         "published_at",
         "received_at",
         "processing_status",
+        "processing_started_at",
         "source_link",
     )
     list_filter = ("source", "processing_status", "published_at", "received_at")
@@ -87,6 +88,7 @@ class SourcePostAdmin(admin.ModelAdmin):
         "received_at",
         "raw_data",
         "processing_status",
+        "processing_started_at",
         "last_error",
     )
     fields = readonly_fields

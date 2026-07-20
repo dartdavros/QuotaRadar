@@ -117,13 +117,25 @@ class Delivery(models.Model):
         blank=True,
     )
     attempts = models.PositiveIntegerField("Попыток", default=0)
+    created_at = models.DateTimeField("Создана", auto_now_add=True)
+    updated_at = models.DateTimeField("Изменена", auto_now=True)
+    last_attempt_at = models.DateTimeField(
+        "Последняя попытка",
+        null=True,
+        blank=True,
+    )
+    next_attempt_at = models.DateTimeField(
+        "Следующая попытка не раньше",
+        null=True,
+        blank=True,
+    )
     sent_at = models.DateTimeField("Отправлено", null=True, blank=True)
     last_error = models.TextField("Последняя ошибка", blank=True)
 
     class Meta:
         verbose_name = "Доставка Telegram"
         verbose_name_plural = "Доставки Telegram"
-        ordering = ("-sent_at", "-pk")
+        ordering = ("-created_at", "-pk")
         constraints = [
             models.UniqueConstraint(
                 fields=("analysis", "target"),

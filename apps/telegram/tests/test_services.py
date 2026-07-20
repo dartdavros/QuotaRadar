@@ -54,13 +54,13 @@ class DeliveryServiceTests(TestCase):
             },
         )
 
-    def test_failed_delivery_can_be_queued_again(self) -> None:
+    def test_permanently_failed_delivery_is_not_queued_again(self) -> None:
         analysis = create_relevant_analysis(external_id="5002")
         target = DeliveryTarget.objects.create(
             target_type=DeliveryTargetType.CHANNEL,
             telegram_chat_id="@quota_retry",
         )
-        delivery = Delivery.objects.create(
+        Delivery.objects.create(
             analysis=analysis,
             target=target,
             status="failed",
@@ -71,8 +71,8 @@ class DeliveryServiceTests(TestCase):
             with self.captureOnCommitCallbacks(execute=True):
                 queued = queue_analysis_deliveries(analysis.pk)
 
-        self.assertEqual(queued.delivery_ids, (delivery.pk,))
-        delay.assert_called_once_with(analysis.pk, target.pk)
+        self.assertEqual(queued.delivery_ids, ())
+        delay.assert_not_called()
 
     def test_broker_publish_failure_is_recorded_without_raising(self) -> None:
         analysis = create_relevant_analysis(external_id="5003")
@@ -89,5 +89,5 @@ class DeliveryServiceTests(TestCase):
                 queue_analysis_deliveries(analysis.pk)
 
         delivery = Delivery.objects.get(analysis=analysis, target=target)
-        self.assertEqual(delivery.status, "failed")
+        self.assertEqual(delivery.status, "pending")
         self.assertEqual(delivery.last_error, "Delivery task could not be queued.")

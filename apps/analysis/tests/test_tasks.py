@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from unittest.mock import Mock, patch
 
 from django.test import TestCase
@@ -15,6 +16,12 @@ from apps.configuration.models import SystemConfiguration
 from apps.sources.models import SourcePostProcessingStatus
 
 
+@contextmanager
+def acquired_lock(source_post_id: int):
+    yield True
+
+
+@patch("apps.analysis.tasks.source_post_analysis_lock", acquired_lock)
 class AnalyzePostTaskTests(TestCase):
     def setUp(self) -> None:
         self.configuration = SystemConfiguration.load()

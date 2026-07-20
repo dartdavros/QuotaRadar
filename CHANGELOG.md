@@ -1,0 +1,32 @@
+# Changelog
+
+Все существенные изменения QuotaRadar фиксируются в этом файле.
+
+Формат основан на Keep a Changelog. Проект использует Semantic Versioning.
+
+## [0.1.0] — 2026-07-20
+
+### Добавлено
+
+- мониторинг официальных X-аккаунтов `@OpenAIDevs` и `@ClaudeDevs`;
+- дедупликация постов и Redis-lock polling;
+- OpenAI-compatible ИИ-анализ со structured output;
+- автоматические русскоязычные уведомления о сбросе, повышении и продлении квот;
+- Telegram-каналы и личные подписки через `/start`, `/stop`, `/status`;
+- Django Admin для конфигурации, секретов, источников, анализов и доставок;
+- зашифрованное хранение секретов с versioned master key;
+- обязательный общий HTTP/HTTPS proxy;
+- persistent Redis AOF и восстановление потерянных Celery-задач;
+- транзакционный маркер fan-out и reconciliation релевантных анализов, для которых доставка не была создана из-за аварии процесса;
+- JSON-логи с correlation identifiers и редактированием секретов;
+- one-shot `init` для миграций и deployment checks;
+- PostgreSQL/Redis integration tests и сквозные fixture-сценарии;
+- GitHub Actions CI;
+- документация установки, эксплуатации, безопасности и участия в разработке;
+- лицензия `AGPL-3.0-only`.
+
+### Ограничения
+
+- нет Nginx/TLS-контура и публичного пользовательского web UI;
+- нет автоматического deploy на сервер;
+- Telegram Bot API не поддерживает idempotency key для `sendMessage`, поэтому при аварии после принятия сообщения, но до фиксации результата, теоретически возможен дубль.

@@ -1,6 +1,5 @@
 .git
 .gitignore
-gitignore
 AGENTS.md
 pack.bat
 .venv
@@ -13,6 +12,8 @@ __pycache__
 .env
 .env.*
 !.env.example
+docker/secrets/*.key
+!docker/secrets/master.key.example
 db.sqlite3
 staticfiles
 media

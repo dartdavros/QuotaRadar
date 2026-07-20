@@ -8,28 +8,51 @@ x-application: &application
   pull_policy: build
   restart: unless-stopped
   environment:
-    DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-unsafe-development-only-change-me}
-    DATABASE_URL: ${DATABASE_URL:-postgresql://quotaradar:quotaradar-dev-only@postgres:5432/quotaradar}
-    REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-    QUOTARADAR_MASTER_KEY_FILE: ${QUOTARADAR_MASTER_KEY_FILE:-/run/secrets/quota_radar_master_key}
+    DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env}
+    DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?Set DJANGO_ALLOWED_HOSTS in .env}
+    POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+    POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
+    REDIS_URL: redis://redis:6379/0
+    QUOTARADAR_MASTER_KEY_FILE: /run/secrets/quota_radar_master_key
   secrets:
     - source: quota_radar_master_key
       target: quota_radar_master_key
       mode: 0444
-  depends_on:
-    postgres:
-      condition: service_healthy
-    redis:
-      condition: service_healthy
   networks:
     - backend
 
+x-runtime-dependencies: &runtime-dependencies
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  init:
+    condition: service_completed_successfully
+
 services:
+  init:
+    <<: *application
+    command: ["init"]
+    restart: "no"
+    volumes:
+      - static_data:/app/staticfiles
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   web:
     <<: *application
     command: ["web"]
+    volumes:
+      - static_data:/app/staticfiles
     ports:
-      - "8000:8000"
+      - "${QUOTARADAR_WEB_BIND_ADDRESS:?Set QUOTARADAR_WEB_BIND_ADDRESS in .env}:8000:8000"
+    depends_on: *runtime-dependencies
     healthcheck:
       test:
         [
@@ -46,41 +69,55 @@ services:
   bot:
     <<: *application
     command: ["bot"]
+    depends_on: *runtime-dependencies
 
   worker:
     <<: *application
     command: ["worker"]
+    depends_on: *runtime-dependencies
 
   beat:
     <<: *application
     command: ["beat"]
+    depends_on: *runtime-dependencies
 
   test:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: quotaradar:local
-    pull_policy: build
+    <<: *application
     restart: "no"
     profiles: ["tools"]
     command: ["test"]
     environment:
-      DJANGO_SECRET_KEY: test-only-django-secret-key
-      DATABASE_URL: "sqlite:///:memory:"
-      REDIS_URL: redis://localhost:6379/15
-      QUOTARADAR_MASTER_KEY_FILE: /app/tests/fixtures/master.key
+      DJANGO_SECRET_KEY: integration-test-django-secret-key
+      DJANGO_ALLOWED_HOSTS: testserver,localhost,127.0.0.1
+      DJANGO_SETTINGS_MODULE: quotaradar.integration_test_settings
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      REDIS_URL: redis://redis:6379/15
+      QUOTARADAR_MASTER_KEY_FILE: /run/secrets/quota_radar_master_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: quotaradar
-      POSTGRES_USER: quotaradar
-      POSTGRES_PASSWORD: quotaradar-dev-only
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U quotaradar -d quotaradar"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:?Set POSTGRES_USER in .env} -d ${POSTGRES_DB:?Set POSTGRES_DB in .env}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -90,7 +127,19 @@ services:
   redis:
     image: redis:7.4-alpine
     restart: unless-stopped
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--appendfsync",
+        "everysec",
+        "--save",
+        "60",
+        "1000",
+      ]
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -101,6 +150,8 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
+  static_data:
 
 networks:
   backend:
@@ -108,4 +159,4 @@ networks:
 
 secrets:
   quota_radar_master_key:
-    file: ./docker/secrets/master.key.example
+    file: ./docker/secrets/master.key

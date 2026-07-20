@@ -16,6 +16,7 @@ class AnalysisAdmin(admin.ModelAdmin):
         "product",
         "model",
         "prompt_version",
+        "delivery_fanout_completed_at",
         "created_at",
         "has_error",
     )
@@ -49,6 +50,7 @@ class AnalysisAdmin(admin.ModelAdmin):
         "prompt_version",
         "raw_response",
         "error",
+        "delivery_fanout_completed_at",
         "created_at",
         "updated_at",
     )

@@ -1,4 +1,4 @@
-"""Self-contained settings for the built-in Django test runner."""
+"""PostgreSQL and Redis settings for Docker/CI integration tests."""
 
 from __future__ import annotations
 
@@ -7,12 +7,15 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-os.environ["DJANGO_SECRET_KEY"] = "test-only-django-secret-key"
-os.environ["DJANGO_ALLOWED_HOSTS"] = "testserver,localhost,127.0.0.1"
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-os.environ["REDIS_URL"] = "redis://localhost:6379/15"
-os.environ["QUOTARADAR_MASTER_KEY_FILE"] = str(
-    BASE_DIR / "tests" / "fixtures" / "master.key"
+# Prevent an unrelated host DATABASE_URL from overriding the Compose PostgreSQL settings.
+os.environ.pop("DATABASE_URL", None)
+
+os.environ.setdefault("DJANGO_SECRET_KEY", "integration-test-django-secret-key")
+os.environ.setdefault("DJANGO_ALLOWED_HOSTS", "testserver,localhost,127.0.0.1")
+os.environ.setdefault("REDIS_URL", "redis://redis:6379/15")
+os.environ.setdefault(
+    "QUOTARADAR_MASTER_KEY_FILE",
+    str(BASE_DIR / "tests" / "fixtures" / "master.key"),
 )
 
 from . import settings as base_settings  # noqa: E402

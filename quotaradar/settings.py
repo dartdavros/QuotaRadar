@@ -9,7 +9,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 from apps.monitoring.schedules import DatabasePollingSchedule
 
-from .database import DatabaseUrlError, parse_database_url
+from .database import DatabaseUrlError, database_config_from_environment
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -21,9 +21,19 @@ def required_environment(name: str) -> str:
     return value.strip()
 
 
+def comma_separated_environment(name: str) -> list[str]:
+    values = [value.strip() for value in required_environment(name).split(",")]
+    result = [value for value in values if value]
+    if not result:
+        raise ImproperlyConfigured(
+            f"Required environment variable {name} contains no values."
+        )
+    return result
+
+
 SECRET_KEY = required_environment("DJANGO_SECRET_KEY")
 DEBUG = False
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]", "web"]
+ALLOWED_HOSTS = comma_separated_environment("DJANGO_ALLOWED_HOSTS")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -72,7 +82,7 @@ WSGI_APPLICATION = "quotaradar.wsgi.application"
 ASGI_APPLICATION = "quotaradar.asgi.application"
 
 try:
-    DATABASES = {"default": parse_database_url(required_environment("DATABASE_URL"))}
+    DATABASES = {"default": database_config_from_environment(os.environ)}
 except DatabaseUrlError as exc:
     raise ImproperlyConfigured(str(exc)) from exc
 
@@ -115,28 +125,39 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_ENABLE_UTC = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_TASK_TRACK_STARTED = True
+CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 3600}
+
+QUOTARADAR_ANALYSIS_STALE_SECONDS = 1800
+QUOTARADAR_DELIVERY_STALE_SECONDS = 1200
+QUOTARADAR_RECOVERY_INTERVAL_SECONDS = 300
 
 CELERY_BEAT_MAX_LOOP_INTERVAL = 5.0
 CELERY_BEAT_SCHEDULE: dict[str, object] = {
     "poll-sources": {
         "task": "monitoring.poll_sources",
         "schedule": DatabasePollingSchedule(),
-    }
+    },
+    "recover-orphaned-work": {
+        "task": "monitoring.recover_orphaned_work",
+        "schedule": float(QUOTARADAR_RECOVERY_INTERVAL_SECONDS),
+    },
 }
 
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "default": {
-            "()": "apps.secrets.redaction.SafeFormatter",
-            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        "json": {
+            "()": "apps.configuration.logging.JsonLogFormatter",
         }
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "default",
+            "formatter": "json",
         }
     },
     "root": {

@@ -7,9 +7,13 @@ run_checks() {
 }
 
 case "${1:-}" in
-    web)
+    init)
+        run_checks
         python manage.py migrate --noinput
         python manage.py collectstatic --noinput
+        python manage.py check --deploy
+        ;;
+    web)
         run_checks
         exec gunicorn quotaradar.wsgi:application \
             --bind 0.0.0.0:8000 \
@@ -32,6 +36,11 @@ case "${1:-}" in
             --schedule=/tmp/celerybeat-schedule
         ;;
     test)
+        run_checks
+        shift
+        exec python manage.py test "$@"
+        ;;
+    test-unit)
         shift
         exec python manage.py test --settings=quotaradar.test_settings "$@"
         ;;

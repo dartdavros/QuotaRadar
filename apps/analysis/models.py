@@ -58,6 +58,11 @@ class Analysis(models.Model):
     error = models.TextField("Ошибка анализа", blank=True)
     created_at = models.DateTimeField("Создан", auto_now_add=True)
     updated_at = models.DateTimeField("Изменён", auto_now=True)
+    delivery_fanout_completed_at = models.DateTimeField(
+        "Создание доставок завершено",
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         verbose_name = "Анализ"

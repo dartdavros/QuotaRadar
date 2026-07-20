@@ -1,12 +1,13 @@
-"""Database URL parsing kept independent from Django settings."""
+"""Database configuration kept independent from Django settings."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from urllib.parse import parse_qsl, unquote, urlparse
 
 
 class DatabaseUrlError(ValueError):
-    """Raised when DATABASE_URL cannot be converted into Django settings."""
+    """Raised when database bootstrap settings are invalid."""
 
 
 def parse_database_url(value: str) -> dict[str, object]:
@@ -55,3 +56,47 @@ def parse_database_url(value: str) -> dict[str, object]:
     raise DatabaseUrlError(
         "DATABASE_URL must use postgresql://, postgres:// or sqlite://."
     )
+
+
+def database_config_from_environment(
+    environment: Mapping[str, str],
+) -> dict[str, object]:
+    """Build database settings from DATABASE_URL or discrete PostgreSQL values."""
+
+    database_url = environment.get("DATABASE_URL", "").strip()
+    if database_url:
+        return parse_database_url(database_url)
+
+    required_names = (
+        "POSTGRES_DB",
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_HOST",
+    )
+    values = {name: environment.get(name, "").strip() for name in required_names}
+    missing = [name for name, value in values.items() if not value]
+    if missing:
+        joined = ", ".join(missing)
+        raise DatabaseUrlError(
+            "Database configuration is incomplete; missing environment variables: "
+            f"{joined}."
+        )
+
+    port = environment.get("POSTGRES_PORT", "5432").strip() or "5432"
+    try:
+        parsed_port = int(port)
+    except ValueError:
+        raise DatabaseUrlError("POSTGRES_PORT must be an integer.") from None
+    if not 1 <= parsed_port <= 65535:
+        raise DatabaseUrlError("POSTGRES_PORT must be between 1 and 65535.")
+
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": values["POSTGRES_DB"],
+        "USER": values["POSTGRES_USER"],
+        "PASSWORD": values["POSTGRES_PASSWORD"],
+        "HOST": values["POSTGRES_HOST"],
+        "PORT": str(parsed_port),
+        "CONN_MAX_AGE": 60,
+        "CONN_HEALTH_CHECKS": True,
+    }

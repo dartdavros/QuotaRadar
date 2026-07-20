@@ -1,11 +1,12 @@
 # PLAN-QUOTARADAR-0001 — План реализации QuotaRadar
 
-- **Статус:** на утверждение
-- **Версия:** 1.0
+- **Статус:** утверждён; этапы 1–6 реализованы локально
+- **Версия:** 1.1
 - **Дата:** 2026-07-20
 - **Связанные документы:**
   - `ARCH-QUOTARADAR-0001-System-Architecture.md`
   - `SPEC-QUOTARADAR-0001-Technical-Specification.md`
+  - `ADR-QUOTARADAR-0002-Recovery-of-Orphaned-Work.md`
 
 ## 1. Цель плана
 
@@ -76,7 +77,8 @@ telegram
 
 - один `Dockerfile` для прикладных процессов;
 - `docker-compose.yml`;
-- сервисы `web`, `bot`, `worker`, `beat`, `postgres`, `redis`;
+- сервисы `init`, `web`, `bot`, `worker`, `beat`, `postgres`, `redis`;
+- профиль `tools` с отдельным интеграционным сервисом `test`;
 - persistent volume PostgreSQL;
 - healthcheck PostgreSQL и Redis;
 - read-only mount для master key;
@@ -88,10 +90,14 @@ telegram
 
 ```text
 DJANGO_SECRET_KEY
-DATABASE_URL
-REDIS_URL
-QUOTARADAR_MASTER_KEY_FILE
+DJANGO_ALLOWED_HOSTS
+QUOTARADAR_WEB_BIND_ADDRESS
+POSTGRES_DB
+POSTGRES_USER
+POSTGRES_PASSWORD
 ```
+
+Внутри Docker Compose фиксируются bootstrap-адреса `POSTGRES_HOST`, `POSTGRES_PORT`, `REDIS_URL` и `QUOTARADAR_MASTER_KEY_FILE`. Для совместимости standalone-конфигурация Django также принимает `DATABASE_URL` с приоритетом над дискретными PostgreSQL-параметрами.
 
 Создание superuser выполняется отдельной воспроизводимой командой.
 
@@ -112,7 +118,7 @@ QUOTARADAR_MASTER_KEY_FILE
 ## Критерии приёмки
 
 1. Проект собирается одним Dockerfile.
-2. `docker compose up` запускает все шесть сервисов.
+2. `docker compose up` запускает production-контур `init`, `web`, `bot`, `worker`, `beat`, `postgres`, `redis`.
 3. PostgreSQL и Redis используют внутреннюю Docker-сеть.
 4. Django Admin доступен после создания superuser.
 5. Worker принимает тестовую Celery-задачу.
@@ -521,6 +527,8 @@ QuotaRadar выполняет полный автоматический цикл
 
 # Этап 6. Стабилизация и open-source выпуск
 
+- **Статус реализации:** выполнен локально; чистая серверная приёмка ожидает целевое окружение.
+
 ## Цель
 
 Подготовить QuotaRadar к воспроизводимому самостоятельному развёртыванию и публикации на GitHub.
@@ -535,7 +543,8 @@ QuotaRadar выполняет полный автоматический цикл
 - сброс квоты;
 - повышение квоты;
 - продление повышенной квоты;
-- повторное получение поста;
+- повторное получение поста и отсутствие нового `Analysis`/`Delivery`;
+- аварийное окно между сохранением релевантного `Analysis` и созданием `Delivery`;
 - временная ошибка X;
 - ошибка ИИ;
 - невалидный structured output;
@@ -554,6 +563,7 @@ QuotaRadar выполняет полный автоматический цикл
 - отсутствие секретов в логах;
 - отсутствие секретов в Celery task arguments;
 - read-only master key mount;
+- архитектурные guard-тесты на прямое создание внешнего HTTP-клиента;
 - невозможность прямого внешнего запроса в обход proxy factory.
 
 ### 6.3. Наблюдаемость
@@ -564,7 +574,9 @@ QuotaRadar выполняет полный автоматический цикл
 - source;
 - X Post;
 - analysis;
-- delivery target.
+- delivery target;
+- delivery;
+- status и error type.
 
 Не логировать тела запросов и ответов, содержащие секреты.
 
@@ -574,7 +586,7 @@ QuotaRadar выполняет полный автоматический цикл
 
 - `.env.example` только с bootstrap-параметрами;
 - генерацию master key;
-- первую миграцию;
+- one-shot `init` для checks, миграций и static files;
 - создание superuser;
 - ввод секретов через Django Admin;
 - создание Telegram-канала target;
@@ -594,7 +606,8 @@ QuotaRadar выполняет полный автоматический цикл
 - инструкцию self-hosted режима личных уведомлений;
 - security notice о master key и секретах;
 - contribution guide;
-- release notes версии `0.1.0`.
+- release notes версии `0.1.0`;
+- GitHub Actions CI с реальными PostgreSQL и Redis.
 
 ### 6.6. Финальная приёмка
 
@@ -610,11 +623,12 @@ QuotaRadar выполняет полный автоматический цикл
 2. PostgreSQL и Redis проходят healthcheck, прикладные процессы запускаются и остаются работоспособными.
 3. Полный сценарий X → ИИ → Telegram проходит автоматически.
 4. Все внешние запросы проходят через proxy.
-5. Повторный запуск не создаёт повторных сообщений.
+5. Повторный запуск не создаёт новую запись доставки и не переотправляет подтверждённо успешную доставку; ограничение неопределённого результата Telegram зафиксировано в ADR-0002.
 6. Реальные секреты отсутствуют в Git-истории и артефактах.
 7. Автоматические тесты проходят в Docker-контуре.
 8. ARCH, SPEC и PLAN соответствуют фактической реализации.
-9. Любое архитектурное отклонение либо устранено, либо оформлено отдельным утверждённым решением.
+9. Механизм восстановления потерянных задач и граница Telegram exactly-once оформлены в `ADR-QUOTARADAR-0002`.
+10. Чистое серверное развёртывание остаётся обязательной внешней приёмкой после публикации на целевом хосте.
 
 ---
 
@@ -648,15 +662,20 @@ Django project
 migrations
 tests
 README.md
+CONTRIBUTING.md
+SECURITY.md
+CHANGELOG.md
 LICENSE
+.github/workflows/ci.yml
 ARCH-QUOTARADAR-0001-System-Architecture.md
 SPEC-QUOTARADAR-0001-Technical-Specification.md
 PLAN-QUOTARADAR-0001-Implementation-Plan.md
+ADR-QUOTARADAR-0002-Recovery-of-Orphaned-Work.md
 ```
 
-## 5. Условия начала реализации
+## 5. Основание реализации
 
-Реализация начинается после утверждения:
+Реализация выполнена после утверждения:
 
 1. `ARCH-QUOTARADAR-0001`;
 2. `SPEC-QUOTARADAR-0001`;
