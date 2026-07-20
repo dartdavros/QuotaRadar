@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 
 from celery import Task, shared_task
-from django.db import close_old_connections
 
 from apps.configuration.models import SystemConfiguration
 from apps.sources.models import Source
@@ -39,7 +38,6 @@ def healthcheck() -> dict[str, str]:
 def poll_sources(self: Task) -> dict[str, int | str]:
     """Resolve missing source IDs and enqueue one polling task per active source."""
 
-    close_old_connections()
     configuration = SystemConfiguration.load()
     if not configuration.monitoring_enabled:
         return {"status": "disabled", "queued": 0}
@@ -75,7 +73,6 @@ def poll_sources(self: Task) -> dict[str, int | str]:
 def poll_source(self: Task, source_id: int) -> dict[str, int | str]:
     """Poll one X source under a Redis lock and persist all returned pages."""
 
-    close_old_connections()
     try:
         source = Source.objects.get(pk=source_id)
     except Source.DoesNotExist:
