@@ -8,6 +8,8 @@ from pathlib import Path
 from django.db import connections
 from redis import Redis
 
+from apps.secrets.keyring import MasterKeyError, load_master_keyring
+
 
 class DependencyCheckError(RuntimeError):
     """Raised when a required bootstrap dependency is unavailable."""
@@ -54,19 +56,12 @@ def check_redis(redis_url: str) -> None:
 
 
 def check_master_key(path: Path) -> None:
+    if not path.is_file():
+        raise DependencyCheckError("Master key file does not exist or is not a file.")
     try:
-        if not path.is_file():
-            raise DependencyCheckError(
-                "Master key file does not exist or is not a file."
-            )
-        value = path.read_bytes()
-    except DependencyCheckError:
-        raise
-    except OSError as exc:
-        raise DependencyCheckError("Master key file cannot be read.") from exc
-
-    if not value.strip():
-        raise DependencyCheckError("Master key file is empty.")
+        load_master_keyring(path)
+    except MasterKeyError as exc:
+        raise DependencyCheckError(str(exc)) from exc
 
 
 def check_dependencies(*, redis_url: str, master_key_file: Path) -> DependencyStatus:

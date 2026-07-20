@@ -112,6 +112,7 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_ENABLE_UTC = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 CELERY_BEAT_SCHEDULE: dict[str, object] = {}
 
 LOGGING = {
@@ -119,6 +120,7 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {
         "default": {
+            "()": "apps.secrets.redaction.SafeFormatter",
             "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
         }
     },
