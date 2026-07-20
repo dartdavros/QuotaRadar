@@ -102,3 +102,38 @@ class ArchitectureGuardTests(SimpleTestCase):
         self.assertIn("docker/secrets/*.key", dockerignore)
         self.assertIn("!docker/secrets/master.key.example", gitignore)
         self.assertIn("!docker/secrets/master.key.example", dockerignore)
+
+
+class DeploymentGuardTests(SimpleTestCase):
+    def test_ci_deploys_main_to_expected_directory(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("deploy_dir=/opt/quotaradar", workflow)
+        self.assertIn("sudo docker compose up -d --build --remove-orphans", workflow)
+        self.assertIn("secrets.DEPLOY_HOST", workflow)
+        self.assertIn("secrets.DEPLOY_PORT", workflow)
+        self.assertIn("secrets.DEPLOY_USER", workflow)
+        self.assertIn("secrets.DEPLOY_SSH_KEY", workflow)
+        self.assertNotIn("DEPLOY_KNOWN_HOSTS", workflow)
+
+    def test_deploy_preserves_runtime_secrets(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('sudo cp "$deploy_dir/.env" "$release_dir/.env"', workflow)
+        self.assertIn(
+            '"$deploy_dir/docker/secrets/master.key"',
+            workflow,
+        )
+
+    def test_reverse_proxy_https_settings_are_enabled(self) -> None:
+        from django.conf import settings
+
+        self.assertEqual(
+            settings.SECURE_PROXY_SSL_HEADER,
+            ("HTTP_X_FORWARDED_PROTO", "https"),
+        )
+        self.assertTrue(settings.SESSION_COOKIE_SECURE)
+        self.assertTrue(settings.CSRF_COOKIE_SECURE)

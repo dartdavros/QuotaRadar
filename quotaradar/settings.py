@@ -34,6 +34,9 @@ def comma_separated_environment(name: str) -> list[str]:
 SECRET_KEY = required_environment("DJANGO_SECRET_KEY")
 DEBUG = False
 ALLOWED_HOSTS = comma_separated_environment("DJANGO_ALLOWED_HOSTS")
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
 
 INSTALLED_APPS = [
     "django.contrib.admin",

@@ -9,10 +9,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -56,3 +52,124 @@ jobs:
       - name: Stop CI stack
         if: always()
         run: docker compose --profile tools down --volumes --remove-orphans
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: quotaradar-production
+      cancel-in-progress: false
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Build release archive
+        run: git archive --format=tar.gz --output="$RUNNER_TEMP/quotaradar-${GITHUB_SHA}.tar.gz" HEAD
+
+      - name: Configure SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for variable in DEPLOY_HOST DEPLOY_PORT DEPLOY_USER DEPLOY_SSH_KEY; do
+            if [ -z "${!variable:-}" ]; then
+              echo "GitHub secret ${variable} is not configured." >&2
+              exit 1
+            fi
+          done
+
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> "$HOME/.ssh/known_hosts"
+
+      - name: Upload release archive
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: >-
+          scp -i "$HOME/.ssh/deploy_key" -P "$DEPLOY_PORT"
+          "$RUNNER_TEMP/quotaradar-${GITHUB_SHA}.tar.gz"
+          "$DEPLOY_USER@$DEPLOY_HOST:/tmp/quotaradar-${GITHUB_SHA}.tar.gz"
+
+      - name: Deploy application
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        shell: bash
+        run: |
+          ssh -i "$HOME/.ssh/deploy_key" -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "GITHUB_SHA='$GITHUB_SHA' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          deploy_dir=/opt/quotaradar
+          release_dir="/opt/quotaradar-release-${GITHUB_SHA}"
+          previous_dir=/opt/quotaradar-previous
+          archive="/tmp/quotaradar-${GITHUB_SHA}.tar.gz"
+
+          sudo test -f "$deploy_dir/.env" || {
+            echo "Missing $deploy_dir/.env" >&2
+            exit 1
+          }
+
+          sudo rm -rf "$release_dir"
+          sudo mkdir -p "$release_dir"
+          sudo tar -xzf "$archive" -C "$release_dir"
+          sudo cp "$deploy_dir/.env" "$release_dir/.env"
+
+          if sudo test -f "$deploy_dir/docker/secrets/master.key"; then
+            sudo mkdir -p "$release_dir/docker/secrets"
+            sudo cp \
+              "$deploy_dir/docker/secrets/master.key" \
+              "$release_dir/docker/secrets/master.key"
+          else
+            sudo python3 "$release_dir/scripts/generate_master_key.py" \
+              --output "$release_dir/docker/secrets/master.key"
+          fi
+          sudo chmod 600 "$release_dir/docker/secrets/master.key"
+
+          cd "$release_dir"
+          sudo docker compose config --quiet
+
+          sudo rm -rf "$previous_dir"
+          sudo mv "$deploy_dir" "$previous_dir"
+          sudo mv "$release_dir" "$deploy_dir"
+
+          cd "$deploy_dir"
+          sudo docker compose up -d --build --remove-orphans
+
+          web_container=$(sudo docker compose ps -q web)
+          healthy=false
+          for _ in $(seq 1 30); do
+            health=$(
+              sudo docker inspect \
+                --format '{{.State.Health.Status}}' \
+                "$web_container" 2>/dev/null || true
+            )
+            if [ "$health" = healthy ]; then
+              healthy=true
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$healthy" != true ]; then
+            sudo docker compose ps
+            sudo docker compose logs --tail 200 web init
+            echo "QuotaRadar web service did not become healthy." >&2
+            exit 1
+          fi
+
+          sudo rm -rf "$previous_dir"
+          sudo rm -f "$archive"
+          REMOTE
