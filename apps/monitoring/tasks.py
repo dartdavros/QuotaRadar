@@ -6,8 +6,9 @@ import logging
 
 from celery import Task, shared_task
 
+from apps.analysis.tasks import analyze_post
 from apps.configuration.models import SystemConfiguration
-from apps.sources.models import Source
+from apps.sources.models import Source, SourcePost, SourcePostProcessingStatus
 
 from .locks import source_poll_lock
 from .services import ingest_source_posts, record_source_error, resolve_source_user_ids
@@ -97,6 +98,7 @@ def poll_source(self: Task, source_id: int) -> dict[str, int | str]:
                         return {"status": "unresolved", "source_id": source_id}
                 source.refresh_from_db()
                 result = ingest_source_posts(source=source, client=client)
+                queued_analyses = _enqueue_pending_posts(source_id)
         except _PERMANENT_X_ERRORS as exc:
             record_source_error([source_id], str(exc))
             logger.error("Source polling failed for source_id=%s: %s", source_id, exc)
@@ -116,7 +118,30 @@ def poll_source(self: Task, source_id: int) -> dict[str, int | str]:
         "existing_posts": result.existing_posts,
         "ignored_retweets": result.ignored_retweets,
         "last_post_id": result.last_post_id,
+        "queued_analyses": queued_analyses,
     }
+
+
+def _enqueue_pending_posts(source_id: int) -> int:
+    """Queue every unprocessed post for the source, including prior backlog."""
+
+    post_ids = list(
+        SourcePost.objects.filter(
+            source_id=source_id,
+            processing_status=SourcePostProcessingStatus.RECEIVED,
+        )
+        .order_by("published_at", "pk")
+        .values_list("pk", flat=True)
+    )
+    queued = 0
+    for post_id in post_ids:
+        analyze_post.delay(post_id)
+        SourcePost.objects.filter(
+            pk=post_id,
+            processing_status=SourcePostProcessingStatus.RECEIVED,
+        ).update(processing_status=SourcePostProcessingStatus.QUEUED)
+        queued += 1
+    return queued
 
 
 _PERMANENT_X_ERRORS = (

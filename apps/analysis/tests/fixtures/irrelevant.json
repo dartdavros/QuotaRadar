@@ -1,0 +1,11 @@
+{
+  "id": "completion-irrelevant",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "{\"is_relevant\":false,\"event_type\":null,\"provider\":\"openai\",\"product\":\"codex\",\"title_ru\":null,\"message_ru\":null}"
+      }
+    }
+  ]
+}

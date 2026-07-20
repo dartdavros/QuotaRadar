@@ -1,0 +1,11 @@
+{
+  "id": "completion-reset",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "{\"is_relevant\":true,\"event_type\":\"quota_reset\",\"provider\":\"openai\",\"product\":\"codex\",\"title_ru\":\"Codex: лимиты сброшены\",\"message_ru\":\"OpenAI сообщила о массовом сбросе лимитов Codex.\"}"
+      }
+    }
+  ]
+}

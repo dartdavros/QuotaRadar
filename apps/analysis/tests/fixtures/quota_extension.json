@@ -1,0 +1,11 @@
+{
+  "id": "completion-extension",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "{\"is_relevant\":true,\"event_type\":\"quota_extension\",\"provider\":\"anthropic\",\"product\":\"claude_code\",\"title_ru\":\"Claude Code: повышение лимитов продлено\",\"message_ru\":\"Anthropic продлила период повышенных лимитов Claude Code до 19 августа.\"}"
+      }
+    }
+  ]
+}

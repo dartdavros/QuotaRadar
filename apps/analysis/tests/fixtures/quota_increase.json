@@ -1,0 +1,11 @@
+{
+  "id": "completion-increase",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "{\"is_relevant\":true,\"event_type\":\"quota_increase\",\"provider\":\"openai\",\"product\":\"codex\",\"title_ru\":\"Codex: повышены лимиты\",\"message_ru\":\"OpenAI временно увеличила недельные лимиты Codex на 50%.\"}"
+      }
+    }
+  ]
+}

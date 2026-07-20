@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 from django.test import TestCase
@@ -7,7 +8,7 @@ from apps.configuration.models import SystemConfiguration
 from apps.monitoring.services import PollResult, ResolutionResult
 from apps.monitoring.tasks import healthcheck, poll_source, poll_sources
 from apps.monitoring.x_api import XApiAuthenticationError, XApiRateLimitError
-from apps.sources.models import Source
+from apps.sources.models import Source, SourcePost, SourcePostProcessingStatus
 
 
 @contextmanager
@@ -105,6 +106,41 @@ class PollSourceTaskTests(TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["created_posts"], 3)
         client_class.assert_called_once_with()
+
+    @patch("apps.monitoring.tasks.analyze_post.delay")
+    @patch("apps.monitoring.tasks.source_poll_lock", acquired_lock)
+    @patch("apps.monitoring.tasks.ingest_source_posts")
+    @patch("apps.monitoring.tasks.XApiClient")
+    def test_success_queues_received_backlog_for_analysis(
+        self,
+        client_class: Mock,
+        ingest: Mock,
+        analyze_delay: Mock,
+    ) -> None:
+        post = SourcePost.objects.create(
+            source=self.source,
+            external_id="9001",
+            text="Quota update",
+            normalized_text="Quota update",
+            source_url="https://x.com/OpenAIDevs/status/9001",
+            published_at=datetime(2026, 7, 20, 10, 0, tzinfo=timezone.utc),
+            raw_data={},
+        )
+        ingest.return_value = PollResult(
+            source_id=self.source.pk,
+            pages=1,
+            created_posts=0,
+            existing_posts=1,
+            ignored_retweets=0,
+            last_post_id="9001",
+        )
+
+        result = poll_source.run(self.source.pk)
+
+        self.assertEqual(result["queued_analyses"], 1)
+        analyze_delay.assert_called_once_with(post.pk)
+        post.refresh_from_db()
+        self.assertEqual(post.processing_status, SourcePostProcessingStatus.QUEUED)
 
     @patch("apps.monitoring.tasks.source_poll_lock", acquired_lock)
     @patch("apps.monitoring.tasks.ingest_source_posts")
