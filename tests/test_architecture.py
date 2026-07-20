@@ -90,7 +90,7 @@ class ArchitectureGuardTests(SimpleTestCase):
         compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         self.assertIn("file: ./docker/secrets/master.key", compose)
         self.assertNotIn("file: ./docker/secrets/master.key.example", compose)
-        self.assertIn("mode: 0444", compose)
+        self.assertNotIn("mode: 0444", compose)
         self.assertIn("--appendonly", compose)
         self.assertIn("redis_data:/data", compose)
         self.assertIn("static_data:/app/staticfiles", compose)
@@ -125,6 +125,20 @@ class DeploymentGuardTests(SimpleTestCase):
         self.assertIn('sudo cp "$deploy_dir/.env" "$release_dir/.env"', workflow)
         self.assertIn(
             '"$deploy_dir/docker/secrets/master.key"',
+            workflow,
+        )
+
+    def test_ci_and_deploy_make_compose_secret_readable(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("chmod 0444 docker/secrets/master.key", workflow)
+        self.assertIn(
+            'sudo chmod 0444 "$release_dir/docker/secrets/master.key"',
+            workflow,
+        )
+        self.assertNotIn(
+            'sudo chmod 600 "$release_dir/docker/secrets/master.key"',
             workflow,
         )
 

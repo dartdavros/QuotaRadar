@@ -1,5 +1,11 @@
 name: quotaradar
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 x-application: &application
   build:
     context: .
@@ -7,6 +13,7 @@ x-application: &application
   image: quotaradar:local
   pull_policy: build
   restart: unless-stopped
+  logging: *default-logging
   environment:
     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env}
     DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?Set DJANGO_ALLOWED_HOSTS in .env}
@@ -20,7 +27,6 @@ x-application: &application
   secrets:
     - source: quota_radar_master_key
       target: quota_radar_master_key
-      mode: 0444
   networks:
     - backend
 
@@ -106,6 +112,7 @@ services:
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
@@ -127,6 +134,7 @@ services:
   redis:
     image: redis:7.4-alpine
     restart: unless-stopped
+    logging: *default-logging
     command:
       [
         "redis-server",
