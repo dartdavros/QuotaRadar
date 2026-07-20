@@ -95,16 +95,30 @@ class ArchitectureGuardTests(SimpleTestCase):
         self.assertIn("redis_data:/data", compose)
         self.assertIn("static_data:/app/staticfiles", compose)
 
-    def test_real_master_key_is_excluded_from_git_and_docker_context(self) -> None:
-        gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
-        dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
-        self.assertIn("docker/secrets/*.key", gitignore)
-        self.assertIn("docker/secrets/*.key", dockerignore)
-        self.assertIn("!docker/secrets/master.key.example", gitignore)
-        self.assertIn("!docker/secrets/master.key.example", dockerignore)
-
 
 class DeploymentGuardTests(SimpleTestCase):
+    def test_ci_validates_master_key_ignore_rules_before_build(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Validate master-key ignore rules", workflow)
+        self.assertIn(
+            "grep -Fxq 'docker/secrets/*.key' .gitignore",
+            workflow,
+        )
+        self.assertIn(
+            "grep -Fxq '!docker/secrets/master.key.example' .gitignore",
+            workflow,
+        )
+        self.assertIn(
+            "grep -Fxq 'docker/secrets/*.key' .dockerignore",
+            workflow,
+        )
+        self.assertIn(
+            "grep -Fxq '!docker/secrets/master.key.example' .dockerignore",
+            workflow,
+        )
+
     def test_ci_deploys_main_to_expected_directory(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"

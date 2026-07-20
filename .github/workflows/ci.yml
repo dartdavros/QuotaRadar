@@ -17,6 +17,15 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
+      - name: Validate master-key ignore rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fxq 'docker/secrets/*.key' .gitignore
+          grep -Fxq '!docker/secrets/master.key.example' .gitignore
+          grep -Fxq 'docker/secrets/*.key' .dockerignore
+          grep -Fxq '!docker/secrets/master.key.example' .dockerignore
+
       - name: Prepare isolated CI bootstrap files
         shell: bash
         run: |
