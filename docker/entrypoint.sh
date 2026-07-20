@@ -31,6 +31,10 @@ case "${1:-}" in
             --loglevel=INFO \
             --schedule=/tmp/celerybeat-schedule
         ;;
+    test)
+        shift
+        exec python manage.py test --settings=quotaradar.test_settings "$@"
+        ;;
     *)
         exec "$@"
         ;;

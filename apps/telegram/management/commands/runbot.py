@@ -1,4 +1,4 @@
-"""Stage-one Telegram process without external API calls."""
+"""Run the Telegram long-polling process."""
 
 from __future__ import annotations
 
@@ -9,27 +9,29 @@ from threading import Event
 from types import FrameType
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+
+from apps.telegram.bot import TelegramBotRunner
+from apps.telegram.client import TelegramApiError, TelegramBotApiClient
 
 logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Run the stage-one Telegram process without external requests."
-    requires_system_checks: list[str] = []
+    help = "Run Telegram Bot API long polling for /start, /stop and /status."
 
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument(
-            "--sleep-seconds",
-            type=float,
-            default=30.0,
-            help="Idle wait interval used while Telegram integration is not implemented.",
+            "--poll-timeout-seconds",
+            type=int,
+            default=30,
+            help="Telegram getUpdates long-poll timeout.",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        sleep_seconds = options["sleep_seconds"]
-        if sleep_seconds <= 0:
-            raise ValueError("--sleep-seconds must be greater than zero.")
+        poll_timeout_seconds = options["poll_timeout_seconds"]
+        if poll_timeout_seconds <= 0:
+            raise CommandError("--poll-timeout-seconds must be greater than zero.")
 
         stop_event = Event()
 
@@ -40,9 +42,17 @@ class Command(BaseCommand):
         signal.signal(signal.SIGTERM, request_stop)
         signal.signal(signal.SIGINT, request_stop)
 
-        logger.info(
-            "Telegram process started in stage-one idle mode; external requests are disabled."
-        )
-        while not stop_event.wait(timeout=sleep_seconds):
-            pass
-        logger.info("Telegram process stopped.")
+        try:
+            with TelegramBotApiClient(
+                timeout_seconds=poll_timeout_seconds + 10
+            ) as client:
+                runner = TelegramBotRunner(
+                    client=client,
+                    poll_timeout_seconds=poll_timeout_seconds,
+                )
+                logger.info("Telegram long-polling process started.")
+                runner.run(should_stop=stop_event.is_set)
+        except TelegramApiError as exc:
+            raise CommandError(str(exc)) from None
+        finally:
+            logger.info("Telegram long-polling process stopped.")

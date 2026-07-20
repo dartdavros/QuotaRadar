@@ -55,6 +55,21 @@ services:
     <<: *application
     command: ["beat"]
 
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: quotaradar:local
+    pull_policy: build
+    restart: "no"
+    profiles: ["tools"]
+    command: ["test"]
+    environment:
+      DJANGO_SECRET_KEY: test-only-django-secret-key
+      DATABASE_URL: "sqlite:///:memory:"
+      REDIS_URL: redis://localhost:6379/15
+      QUOTARADAR_MASTER_KEY_FILE: /app/tests/fixtures/master.key
+
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped

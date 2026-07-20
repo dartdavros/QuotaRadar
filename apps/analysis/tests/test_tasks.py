@@ -44,19 +44,30 @@ class AnalyzePostTaskTests(TestCase):
             raw_response={"id": "completion"},
         )
 
+    @patch("apps.analysis.tasks.queue_analysis_deliveries")
     @patch("apps.analysis.tasks.create_llm_client")
-    def test_relevant_post_is_analyzed_once(self, create_client: Mock) -> None:
+    def test_relevant_post_is_analyzed_once_and_delivery_fanout_is_rechecked(
+        self,
+        create_client: Mock,
+        queue_deliveries: Mock,
+    ) -> None:
         client = Mock()
         client.analyze.return_value = self.response(relevant=True)
         create_client.return_value.__enter__.return_value = client
+        first_queue = Mock(delivery_ids=(10, 11))
+        second_queue = Mock(delivery_ids=())
+        queue_deliveries.side_effect = (first_queue, second_queue)
 
         first = analyze_post.run(self.post.pk)
         second = analyze_post.run(self.post.pk)
 
         self.assertEqual(first["status"], "ok")
+        self.assertEqual(first["queued_deliveries"], 2)
         self.assertEqual(second["status"], "already_analyzed")
+        self.assertEqual(second["queued_deliveries"], 0)
         self.assertEqual(Analysis.objects.count(), 1)
         client.analyze.assert_called_once()
+        self.assertEqual(queue_deliveries.call_count, 2)
 
     @patch("apps.analysis.tasks.create_llm_client")
     def test_irrelevant_post_stops_without_delivery_state(

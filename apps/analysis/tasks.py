@@ -8,6 +8,7 @@ from celery import Task, shared_task
 
 from apps.configuration.models import SystemConfiguration
 from apps.sources.models import SourcePost, SourcePostProcessingStatus
+from apps.telegram.services import queue_analysis_deliveries
 
 from .llm import (
     LlmAuthenticationError,
@@ -43,11 +44,16 @@ def analyze_post(self: Task, source_post_id: int) -> dict[str, int | str | bool]
 
     completed = find_successful_analysis(source_post)
     if completed is not None:
+        queued_deliveries = 0
+        if completed.is_relevant is True:
+            queued = queue_analysis_deliveries(completed.pk)
+            queued_deliveries = len(queued.delivery_ids)
         return {
             "status": "already_analyzed",
             "source_post_id": source_post_id,
             "analysis_id": completed.pk,
             "is_relevant": bool(completed.is_relevant),
+            "queued_deliveries": queued_deliveries,
         }
 
     SourcePost.objects.filter(pk=source_post_id).update(
@@ -102,11 +108,16 @@ def analyze_post(self: Task, source_post_id: int) -> dict[str, int | str | bool]
         response=response,
         configuration=configuration,
     )
+    queued_deliveries = 0
+    if persisted.analysis.is_relevant is True:
+        queued = queue_analysis_deliveries(persisted.analysis.pk)
+        queued_deliveries = len(queued.delivery_ids)
     return {
         "status": "ok" if persisted.created else "already_analyzed",
         "source_post_id": source_post_id,
         "analysis_id": persisted.analysis.pk,
         "is_relevant": bool(persisted.analysis.is_relevant),
+        "queued_deliveries": queued_deliveries,
     }
 
 
