@@ -48,7 +48,7 @@ class AnalysisPersistenceTests(TestCase):
         self.assertFalse(second.created)
         self.assertEqual(first.analysis.pk, second.analysis.pk)
         self.assertEqual(first.analysis.model, "test-model")
-        self.assertEqual(first.analysis.prompt_version, 1)
+        self.assertEqual(first.analysis.prompt_version, 2)
         self.post.refresh_from_db()
         self.assertEqual(
             self.post.processing_status,

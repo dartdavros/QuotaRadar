@@ -1,18 +1,19 @@
 # PLAN-QUOTARADAR-0001 — План реализации QuotaRadar
 
 - **Статус:** утверждён; этапы 1–6 реализованы локально
-- **Версия:** 1.1
-- **Дата:** 2026-07-20
+- **Версия:** 1.2
+- **Дата:** 2026-07-21
 - **Связанные документы:**
   - `ARCH-QUOTARADAR-0001-System-Architecture.md`
   - `SPEC-QUOTARADAR-0001-Technical-Specification.md`
   - `ADR-QUOTARADAR-0002-Recovery-of-Orphaned-Work.md`
+  - `ADR-QUOTARADAR-0003-Trusted-Codex-Sources.md`
 
 ## 1. Цель плана
 
 Реализовать QuotaRadar в согласованной архитектуре без расширения функциональных границ:
 
-- мониторинг `@OpenAIDevs` и `@ClaudeDevs` через официальный X API v2;
+- мониторинг утверждённого allowlist `@OpenAIDevs`, `@thsottiaux`, резервного `@sama` и `@ClaudeDevs` через официальный X API v2;
 - ИИ-интерпретация публикаций;
 - автоматическое формирование русскоязычных уведомлений;
 - доставка в Telegram-каналы и личные чаты;
@@ -21,7 +22,7 @@
 - зашифрованное хранение секретов в PostgreSQL;
 - развёртывание через Docker Compose.
 
-Ручная модерация, RSS, scraping X, другие источники, публичный веб-интерфейс, платные функции и пользовательские фильтры не входят в реализацию.
+Ручная модерация, RSS, scraping X, источники вне утверждённого allowlist, публичный веб-интерфейс, платные функции и пользовательские фильтры не входят в реализацию.
 
 ## 2. Принципы выполнения
 
@@ -218,7 +219,7 @@ proxy_url
 
 ## Цель
 
-Надёжно и идемпотентно получать новые публикации `@OpenAIDevs` и `@ClaudeDevs` через официальный X API v2.
+Надёжно и идемпотентно получать новые публикации включённых аккаунтов утверждённого allowlist через официальный X API v2.
 
 ## Работы
 
@@ -228,7 +229,7 @@ proxy_url
 
 - `Source`;
 - `SourcePost`;
-- начальные записи `OpenAIDevs` и `ClaudeDevs`;
+- начальные записи `OpenAIDevs`, `thsottiaux`, `sama` и `ClaudeDevs` с утверждёнными начальными состояниями `enabled`;
 - уникальность `SourcePost.external_id`;
 - статусы обработки поста.
 
@@ -237,7 +238,7 @@ proxy_url
 Реализовать вызовы через общий прокси-клиент:
 
 ```http
-GET /2/users/by?usernames=OpenAIDevs,ClaudeDevs
+GET /2/users/by?usernames=<enabled_source_usernames>
 GET /2/users/{user_id}/tweets
 ```
 
@@ -299,11 +300,11 @@ backfill_source(source_id)
 
 ## Результат этапа
 
-QuotaRadar автоматически получает новые посты двух источников через прокси и сохраняет их в PostgreSQL без повторов. ИИ и Telegram пока не используются.
+QuotaRadar автоматически получает новые посты всех включённых доверенных источников через прокси и сохраняет их в PostgreSQL без повторов. ИИ и Telegram пока не используются.
 
 ## Критерии приёмки
 
-1. Оба X User ID разрешаются и сохраняются.
+1. X User ID всех включённых источников разрешаются и сохраняются.
 2. Все обращения к `api.x.com` подтверждённо проходят через proxy.
 3. Репосты не сохраняются.
 4. Replies сохраняются.
@@ -636,7 +637,8 @@ QuotaRadar выполняет полный автоматический цикл
 7. Автоматические тесты проходят в Docker-контуре.
 8. ARCH, SPEC и PLAN соответствуют фактической реализации.
 9. Механизм восстановления потерянных задач и граница Telegram exactly-once оформлены в `ADR-QUOTARADAR-0002`.
-10. Чистое серверное развёртывание остаётся обязательной внешней приёмкой после публикации на целевом хосте.
+10. Политика доверенных источников Codex и безопасного включения новых аккаунтов оформлена в `ADR-QUOTARADAR-0003`.
+11. Чистое серверное развёртывание остаётся обязательной внешней приёмкой после публикации на целевом хосте.
 
 ---
 
@@ -679,6 +681,7 @@ ARCH-QUOTARADAR-0001-System-Architecture.md
 SPEC-QUOTARADAR-0001-Technical-Specification.md
 PLAN-QUOTARADAR-0001-Implementation-Plan.md
 ADR-QUOTARADAR-0002-Recovery-of-Orphaned-Work.md
+ADR-QUOTARADAR-0003-Trusted-Codex-Sources.md
 ```
 
 ## 5. Основание реализации
@@ -687,4 +690,6 @@ ADR-QUOTARADAR-0002-Recovery-of-Orphaned-Work.md
 
 1. `ARCH-QUOTARADAR-0001`;
 2. `SPEC-QUOTARADAR-0001`;
-3. настоящего плана `PLAN-QUOTARADAR-0001`.
+3. настоящего плана `PLAN-QUOTARADAR-0001`;
+4. `ADR-QUOTARADAR-0002`;
+5. `ADR-QUOTARADAR-0003`.

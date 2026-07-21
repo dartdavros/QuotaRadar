@@ -5,7 +5,7 @@ from apps.sources.models import Source, SourcePost, SourceProvider
 
 
 def create_relevant_analysis(*, external_id: str = "5001") -> Analysis:
-    source = Source.objects.get(provider=SourceProvider.OPENAI)
+    source = Source.objects.get(username="OpenAIDevs")
     post = SourcePost.objects.create(
         source=source,
         external_id=external_id,

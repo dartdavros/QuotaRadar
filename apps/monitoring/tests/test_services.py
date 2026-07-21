@@ -25,12 +25,14 @@ def page_from_fixture(name: str) -> XTimelinePage:
 
 
 class SourceResolutionTests(TestCase):
-    def test_resolves_both_official_user_ids(self) -> None:
+    def test_resolves_all_trusted_user_ids(self) -> None:
         sources = list(Source.objects.order_by("pk"))
         client = Mock()
         client.lookup_users.return_value = {
             "openaidevs": "1001",
             "claudedevs": "2002",
+            "sama": "3003",
+            "thsottiaux": "4004",
         }
 
         result = resolve_source_user_ids(client=client, sources=sources)
@@ -38,6 +40,8 @@ class SourceResolutionTests(TestCase):
         self.assertFalse(result.unresolved_source_ids)
         self.assertEqual(Source.objects.get(username="OpenAIDevs").x_user_id, "1001")
         self.assertEqual(Source.objects.get(username="ClaudeDevs").x_user_id, "2002")
+        self.assertEqual(Source.objects.get(username="sama").x_user_id, "3003")
+        self.assertEqual(Source.objects.get(username="thsottiaux").x_user_id, "4004")
 
 
 class SourceIngestionTests(TestCase):

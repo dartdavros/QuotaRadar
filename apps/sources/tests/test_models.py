@@ -12,12 +12,14 @@ from apps.sources.models import (
 
 
 class SourceModelTests(TestCase):
-    def test_initial_official_sources_exist(self) -> None:
+    def test_initial_trusted_sources_exist(self) -> None:
         self.assertEqual(
-            list(Source.objects.values_list("provider", "username")),
+            list(Source.objects.values_list("provider", "username", "enabled")),
             [
-                (SourceProvider.ANTHROPIC, "ClaudeDevs"),
-                (SourceProvider.OPENAI, "OpenAIDevs"),
+                (SourceProvider.ANTHROPIC, "ClaudeDevs", True),
+                (SourceProvider.OPENAI, "OpenAIDevs", True),
+                (SourceProvider.OPENAI, "sama", False),
+                (SourceProvider.OPENAI, "thsottiaux", False),
             ],
         )
 

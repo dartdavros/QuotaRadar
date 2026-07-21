@@ -91,6 +91,7 @@ class EndToEndPipelineTests(TransactionTestCase):
             {
                 "external_id": "8001",
                 "provider": SourceProvider.OPENAI,
+                "source_username": "OpenAIDevs",
                 "text": "General developer platform update.",
                 "payload": {
                     "is_relevant": False,
@@ -104,6 +105,7 @@ class EndToEndPipelineTests(TransactionTestCase):
             {
                 "external_id": "8002",
                 "provider": SourceProvider.OPENAI,
+                "source_username": "thsottiaux",
                 "text": "Codex usage limits have reset for all users.",
                 "payload": {
                     "is_relevant": True,
@@ -117,6 +119,7 @@ class EndToEndPipelineTests(TransactionTestCase):
             {
                 "external_id": "8003",
                 "provider": SourceProvider.OPENAI,
+                "source_username": "thsottiaux",
                 "text": "Weekly Codex limits are 50% higher.",
                 "payload": {
                     "is_relevant": True,
@@ -130,6 +133,7 @@ class EndToEndPipelineTests(TransactionTestCase):
             {
                 "external_id": "8004",
                 "provider": SourceProvider.ANTHROPIC,
+                "source_username": "ClaudeDevs",
                 "text": "The Claude Code boost is extended through August 19.",
                 "payload": {
                     "is_relevant": True,
@@ -145,9 +149,14 @@ class EndToEndPipelineTests(TransactionTestCase):
         telegram.send_message.side_effect = ["101", "102", "103"]
 
         for scenario in scenarios:
-            source = Source.objects.get(provider=scenario["provider"])
-            source.x_user_id = "1001" if source.provider == "openai" else "1002"
-            source.save(update_fields=("x_user_id",))
+            source = Source.objects.get(username=scenario["source_username"])
+            source.x_user_id = {
+                "OpenAIDevs": "1001",
+                "thsottiaux": "1003",
+                "ClaudeDevs": "1002",
+            }[source.username]
+            source.enabled = True
+            source.save(update_fields=("x_user_id", "enabled"))
             post = {
                 "id": scenario["external_id"],
                 "text": scenario["text"],
@@ -214,7 +223,7 @@ class EndToEndPipelineTests(TransactionTestCase):
             SourcePostProcessingStatus.ANALYZED_IRRELEVANT,
         )
 
-        duplicate_source = Source.objects.get(provider=SourceProvider.OPENAI)
+        duplicate_source = Source.objects.get(username="thsottiaux")
         duplicate_post = {
             "id": "8003",
             "text": "Weekly Codex limits are 50% higher.",

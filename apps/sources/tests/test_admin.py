@@ -35,7 +35,7 @@ class SourceAdminTests(TestCase):
         self.assertContains(response, "105")
         self.assertContains(response, "safe error")
 
-    def test_only_enabled_flag_is_editable_for_official_sources(self) -> None:
+    def test_only_enabled_flag_is_editable_for_trusted_sources(self) -> None:
         source = Source.objects.get(username="OpenAIDevs")
         response = self.client.get(
             reverse("admin:sources_source_change", args=(source.pk,))

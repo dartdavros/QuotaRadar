@@ -11,7 +11,7 @@ class SourceProvider(models.TextChoices):
 
 
 class Source(models.Model):
-    """Official X account monitored by QuotaRadar."""
+    """Trusted X account monitored by QuotaRadar."""
 
     provider = models.CharField(
         "Провайдер",

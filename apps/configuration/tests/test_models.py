@@ -15,7 +15,8 @@ class SystemConfigurationTests(TestCase):
         self.assertEqual(configuration.historical_backfill_post_limit, 100)
         self.assertEqual(configuration.telegram_message_timezone, "Europe/Moscow")
         self.assertEqual(configuration.active_prompt.code, "quota_event_classifier")
-        self.assertEqual(configuration.active_prompt.version, 1)
+        self.assertEqual(configuration.active_prompt.version, 2)
+        self.assertIn("доверенных X-источников", configuration.active_prompt.system_prompt)
 
     def test_post_limits_must_match_x_api_bounds(self) -> None:
         configuration = SystemConfiguration.load()
@@ -68,7 +69,7 @@ class SystemConfigurationTests(TestCase):
         previous_prompt = configuration.active_prompt
         next_prompt = PromptTemplate.objects.create(
             code=previous_prompt.code,
-            version=2,
+            version=previous_prompt.version + 1,
             system_prompt="new system",
             user_prompt_template="new user",
             is_active=True,
