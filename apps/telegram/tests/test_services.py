@@ -2,8 +2,17 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
-from apps.telegram.models import Delivery, DeliveryTarget, DeliveryTargetType
-from apps.telegram.services import format_delivery_message, queue_analysis_deliveries
+from apps.telegram.models import (
+    Delivery,
+    DeliveryStatus,
+    DeliveryTarget,
+    DeliveryTargetType,
+)
+from apps.telegram.services import (
+    format_delivery_message,
+    queue_analysis_deliveries,
+    requeue_failed_deliveries,
+)
 
 from .helpers import create_relevant_analysis
 
@@ -91,3 +100,62 @@ class DeliveryServiceTests(TestCase):
         delivery = Delivery.objects.get(analysis=analysis, target=target)
         self.assertEqual(delivery.status, "pending")
         self.assertEqual(delivery.last_error, "Delivery task could not be queued.")
+
+
+class DeliveryRequeueServiceTests(TestCase):
+    def setUp(self) -> None:
+        self.analysis = create_relevant_analysis(external_id="requeue-5001")
+        self.target = DeliveryTarget.objects.create(
+            target_type=DeliveryTargetType.CHANNEL,
+            telegram_chat_id="@quota_requeue",
+        )
+        self.delivery = Delivery.objects.create(
+            analysis=self.analysis,
+            target=self.target,
+            status=DeliveryStatus.FAILED,
+            attempts=2,
+            last_error="Permanent delivery error.",
+        )
+
+    @patch("apps.telegram.tasks.deliver_analysis.delay")
+    def test_requeue_resets_failed_delivery_and_dispatches_new_task(self, delay) -> None:
+        result = requeue_failed_deliveries(delivery_ids=(self.delivery.pk,))
+
+        self.assertEqual(result.requested, 1)
+        self.assertEqual(result.queued, 1)
+        self.assertEqual(result.skipped, 0)
+        self.assertEqual(result.dispatch_failed, 0)
+        delay.assert_called_once_with(self.analysis.pk, self.target.pk)
+        self.delivery.refresh_from_db()
+        self.assertEqual(self.delivery.status, DeliveryStatus.PENDING)
+        self.assertEqual(self.delivery.attempts, 0)
+        self.assertEqual(self.delivery.last_error, "")
+
+    @patch(
+        "apps.telegram.tasks.deliver_analysis.delay",
+        side_effect=RuntimeError("broker unavailable"),
+    )
+    def test_dispatch_failure_restores_failed_delivery(self, delay) -> None:
+        result = requeue_failed_deliveries(delivery_ids=(self.delivery.pk,))
+
+        self.assertEqual(result.queued, 0)
+        self.assertEqual(result.dispatch_failed, 1)
+        self.delivery.refresh_from_db()
+        self.assertEqual(self.delivery.status, DeliveryStatus.FAILED)
+        self.assertEqual(self.delivery.attempts, 2)
+        self.assertEqual(self.delivery.last_error, "Permanent delivery error.")
+
+    @patch("apps.telegram.tasks.deliver_analysis.delay")
+    def test_non_failed_delivery_is_skipped(self, delay) -> None:
+        self.delivery.status = DeliveryStatus.SENT
+        self.delivery.telegram_message_id = "777"
+        self.delivery.save(
+            update_fields=("status", "telegram_message_id", "updated_at")
+        )
+
+        result = requeue_failed_deliveries(delivery_ids=(self.delivery.pk,))
+
+        self.assertEqual(result.queued, 0)
+        self.assertEqual(result.skipped, 1)
+        delay.assert_not_called()
+

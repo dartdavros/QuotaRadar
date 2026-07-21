@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable
 
 from django.db import transaction
 from django.utils import timezone
 
 from apps.analysis.models import Analysis
+from apps.monitoring.events import record_monitoring_event
+from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
 
 from .models import Delivery, DeliveryStatus, DeliveryTarget
 
@@ -22,6 +25,14 @@ class DeliveryMessageError(ValueError):
 class QueuedDeliveries:
     analysis_id: int
     delivery_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DeliveryDispatchResult:
+    requested: int
+    queued: int
+    skipped: int
+    dispatch_failed: int
 
 
 def format_delivery_message(analysis: Analysis) -> str:
@@ -84,3 +95,88 @@ def _dispatch_deliveries(delivery_ids: tuple[int, ...]) -> None:
                 pk=delivery_id,
                 status=DeliveryStatus.PENDING,
             ).update(last_error="Delivery task could not be queued.")
+
+
+def requeue_failed_deliveries(
+    *,
+    delivery_ids: Iterable[int],
+    task_id: str = "",
+) -> DeliveryDispatchResult:
+    """Reset and dispatch exactly the requested failed Telegram deliveries."""
+
+    requested_ids = tuple(dict.fromkeys(delivery_ids))
+    candidates = list(
+        Delivery.objects.select_related(
+            "analysis__source_post__source",
+            "target",
+        )
+        .filter(pk__in=requested_ids, status=DeliveryStatus.FAILED)
+        .order_by("pk")
+    )
+    queued = 0
+    skipped = len(requested_ids) - len(candidates)
+    dispatch_failed = 0
+
+    from .tasks import deliver_analysis
+
+    for delivery in candidates:
+        previous_state = {
+            "status": delivery.status,
+            "telegram_message_id": delivery.telegram_message_id,
+            "attempts": delivery.attempts,
+            "last_attempt_at": delivery.last_attempt_at,
+            "next_attempt_at": delivery.next_attempt_at,
+            "sent_at": delivery.sent_at,
+            "last_error": delivery.last_error,
+        }
+        claimed = Delivery.objects.filter(
+            pk=delivery.pk,
+            status=DeliveryStatus.FAILED,
+        ).update(
+            status=DeliveryStatus.PENDING,
+            telegram_message_id="",
+            attempts=0,
+            last_attempt_at=None,
+            next_attempt_at=None,
+            sent_at=None,
+            last_error="",
+            updated_at=timezone.now(),
+        )
+        if not claimed:
+            skipped += 1
+            continue
+
+        try:
+            deliver_analysis.delay(delivery.analysis_id, delivery.target_id)
+        except Exception as exc:
+            dispatch_failed += 1
+            Delivery.objects.filter(
+                pk=delivery.pk,
+                status=DeliveryStatus.PENDING,
+                attempts=0,
+            ).update(
+                **previous_state,
+                updated_at=timezone.now(),
+            )
+            record_monitoring_event(
+                component=MonitoringComponent.TELEGRAM,
+                status=MonitoringEventStatus.ERROR,
+                source=delivery.analysis.source_post.source,
+                message=(
+                    f"Не удалось вернуть доставку {delivery.pk} "
+                    f"в очередь Telegram: {exc}"
+                ),
+                error_type=type(exc).__name__,
+                task_id=task_id,
+            )
+            continue
+
+        queued += 1
+
+    return DeliveryDispatchResult(
+        requested=len(requested_ids),
+        queued=queued,
+        skipped=skipped,
+        dispatch_failed=dispatch_failed,
+    )
+
