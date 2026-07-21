@@ -8,6 +8,8 @@ from celery import Task, shared_task
 from django.utils import timezone
 
 from apps.configuration.models import SystemConfiguration
+from apps.monitoring.events import record_monitoring_event
+from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
 from apps.sources.models import SourcePost, SourcePostProcessingStatus
 from apps.telegram.services import queue_analysis_deliveries
 
@@ -115,7 +117,7 @@ def _analyze_locked(
         raw_response = exc.raw_response
         return _retry_or_fail(
             task=task,
-            source_post_id=source_post.pk,
+            source_post=source_post,
             configuration=configuration,
             exc=exc,
             raw_response=raw_response,
@@ -124,7 +126,7 @@ def _analyze_locked(
     except (LlmTemporaryError, AnalysisQualityError) as exc:
         return _retry_or_fail(
             task=task,
-            source_post_id=source_post.pk,
+            source_post=source_post,
             configuration=configuration,
             exc=exc,
             raw_response=raw_response,
@@ -147,6 +149,14 @@ def _analyze_locked(
                 "error_type": type(exc).__name__,
             },
         )
+        record_monitoring_event(
+            component=MonitoringComponent.AI,
+            status=MonitoringEventStatus.ERROR,
+            source=source_post.source,
+            message=f"Ошибка анализа поста {source_post.external_id}: {exc}",
+            error_type=type(exc).__name__,
+            task_id=_task_id(task),
+        )
         return _failure_result(source_post_id=source_post.pk, analysis=analysis)
 
     persisted = save_successful_analysis(
@@ -167,6 +177,14 @@ def _analyze_locked(
             "analysis_id": persisted.analysis.pk,
             "status": status,
         },
+    )
+    relevance = "релевантен" if persisted.analysis.is_relevant else "не релевантен"
+    record_monitoring_event(
+        component=MonitoringComponent.AI,
+        status=MonitoringEventStatus.SUCCESS,
+        source=source_post.source,
+        message=f"Пост {source_post.external_id} проанализирован: {relevance}.",
+        task_id=_task_id(task),
     )
     return {
         "status": status,
@@ -189,7 +207,7 @@ _PERMANENT_ANALYSIS_ERRORS = (
 def _retry_or_fail(
     *,
     task: Task,
-    source_post_id: int,
+    source_post: SourcePost,
     configuration: SystemConfiguration,
     exc: Exception,
     raw_response: object | None,
@@ -198,6 +216,17 @@ def _retry_or_fail(
     retries = getattr(task.request, "retries", 0)
     if retries < configuration.retry_count:
         countdown = min(_BASE_RETRY_SECONDS * (2**retries), _MAX_RETRY_SECONDS)
+        record_monitoring_event(
+            component=MonitoringComponent.AI,
+            status=MonitoringEventStatus.ERROR,
+            source=source_post.source,
+            message=(
+                f"Временная ошибка анализа поста {source_post.external_id}: {exc}. "
+                f"Повтор через {countdown} сек."
+            ),
+            error_type=type(exc).__name__,
+            task_id=_task_id(task),
+        )
         logger.warning(
             "Temporary or invalid LLM response; retry scheduled.",
             extra={
@@ -214,7 +243,7 @@ def _retry_or_fail(
         )
 
     analysis = save_failed_analysis(
-        source_post_id=source_post_id,
+        source_post_id=source_post.pk,
         configuration=configuration,
         error=str(exc),
         raw_response=raw_response,
@@ -229,7 +258,15 @@ def _retry_or_fail(
             "error_type": type(exc).__name__,
         },
     )
-    return _failure_result(source_post_id=source_post_id, analysis=analysis)
+    record_monitoring_event(
+        component=MonitoringComponent.AI,
+        status=MonitoringEventStatus.ERROR,
+        source=source_post.source,
+        message=f"Ошибка анализа поста {source_post.external_id}: {exc}",
+        error_type=type(exc).__name__,
+        task_id=_task_id(task),
+    )
+    return _failure_result(source_post_id=source_post.pk, analysis=analysis)
 
 
 def _failure_result(

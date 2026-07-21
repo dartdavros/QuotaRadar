@@ -1,7 +1,9 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
+from apps.configuration.models import SystemConfiguration
 from apps.sources.models import Source
 
 
@@ -45,3 +47,18 @@ class SourceAdminTests(TestCase):
         response = self.client.get(reverse("admin:sources_source_add"))
 
         self.assertEqual(response.status_code, 403)
+
+    def test_source_list_displays_runtime_status(self) -> None:
+        configuration = SystemConfiguration.load()
+        configuration.monitoring_enabled = True
+        configuration.save()
+        source = Source.objects.get(username="OpenAIDevs")
+        source.last_checked_at = timezone.now()
+        source.last_success_at = source.last_checked_at
+        source.last_error = ""
+        source.save()
+
+        response = self.client.get(reverse("admin:sources_source_changelist"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Работает")

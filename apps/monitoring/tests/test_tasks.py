@@ -5,6 +5,11 @@ from unittest.mock import Mock, patch
 from django.test import TestCase
 
 from apps.configuration.models import SystemConfiguration
+from apps.monitoring.models import (
+    MonitoringComponent,
+    MonitoringEvent,
+    MonitoringEventStatus,
+)
 from apps.monitoring.services import PollResult, ResolutionResult
 from apps.monitoring.tasks import healthcheck, poll_source, poll_sources
 from apps.monitoring.x_api import XApiAuthenticationError, XApiRateLimitError
@@ -106,8 +111,14 @@ class PollSourceTaskTests(TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["created_posts"], 3)
         client_class.assert_called_once_with()
+        event = MonitoringEvent.objects.get(
+            component=MonitoringComponent.X,
+            status=MonitoringEventStatus.SUCCESS,
+            source=self.source,
+        )
+        self.assertIn("Новых постов: 3", event.message)
 
-    @patch("apps.monitoring.tasks.analyze_post.delay")
+    @patch("apps.monitoring.dispatch.analyze_post.delay")
     @patch("apps.monitoring.tasks.source_poll_lock", acquired_lock)
     @patch("apps.monitoring.tasks.ingest_source_posts")
     @patch("apps.monitoring.tasks.XApiClient")
@@ -190,3 +201,10 @@ class PollSourceTaskTests(TestCase):
             self.source.last_error,
             "X API rejected the configured bearer token.",
         )
+        event = MonitoringEvent.objects.get(
+            component=MonitoringComponent.X,
+            status=MonitoringEventStatus.ERROR,
+            source=self.source,
+        )
+        self.assertEqual(event.error_type, "XApiAuthenticationError")
+        self.assertIn("rejected", event.message)

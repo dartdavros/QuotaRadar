@@ -5,14 +5,16 @@ from __future__ import annotations
 import logging
 
 from celery import Task, shared_task
-from django.utils import timezone
 
-from apps.analysis.tasks import analyze_post
 from apps.configuration.models import SystemConfiguration
-from apps.sources.models import Source, SourcePost, SourcePostProcessingStatus
+from apps.sources.models import Source
 
+from .dispatch import enqueue_pending_posts
+from .events import record_monitoring_event
 from .locks import source_poll_lock
+from .models import MonitoringComponent, MonitoringEventStatus
 from .recovery import recover_orphaned_work as run_recovery
+from .retries import retry_countdown, retry_x_task
 from .services import ingest_source_posts, record_source_error, resolve_source_user_ids
 from .x_api import (
     XApiAuthenticationError,
@@ -26,21 +28,17 @@ from .x_api import (
 )
 
 logger = logging.getLogger(__name__)
-_BASE_RETRY_SECONDS = 30
-_MAX_RETRY_SECONDS = 900
 
 
 @shared_task(name="monitoring.healthcheck")
 def healthcheck() -> dict[str, str]:
     """Return a deterministic response proving that the worker accepts tasks."""
-
     return {"status": "ok", "service": "worker"}
 
 
 @shared_task(bind=True, name="monitoring.poll_sources")
 def poll_sources(self: Task) -> dict[str, int | str]:
     """Resolve missing source IDs and enqueue one polling task per active source."""
-
     task_id = _task_id(self)
     configuration = SystemConfiguration.load()
     if not configuration.monitoring_enabled:
@@ -63,6 +61,15 @@ def poll_sources(self: Task) -> dict[str, int | str]:
             resolution = resolve_source_user_ids(client=client, sources=sources)
     except _PERMANENT_X_ERRORS as exc:
         record_source_error([source.pk for source in sources], str(exc))
+        for source in sources:
+            record_monitoring_event(
+                component=MonitoringComponent.X,
+                status=MonitoringEventStatus.ERROR,
+                source=source,
+                message=str(exc),
+                error_type=type(exc).__name__,
+                task_id=task_id,
+            )
         logger.error(
             "Source user ID resolution failed.",
             extra={
@@ -75,10 +82,34 @@ def poll_sources(self: Task) -> dict[str, int | str]:
         return {"status": "error", "queued": 0}
     except XApiRateLimitError as exc:
         record_source_error([source.pk for source in sources], str(exc))
-        _retry_task(self, exc, configuration.retry_count, exc.retry_after_seconds())
+        retry_x_task(
+            self,
+            exc,
+            configuration.retry_count,
+            exc.retry_after_seconds(),
+            sources=sources,
+        )
     except XApiTemporaryError as exc:
         record_source_error([source.pk for source in sources], str(exc))
-        _retry_task(self, exc, configuration.retry_count, _retry_countdown(self))
+        retry_x_task(
+            self,
+            exc,
+            configuration.retry_count,
+            retry_countdown(self),
+            sources=sources,
+        )
+
+    source_by_id = {source.pk: source for source in sources}
+    for source_id in resolution.unresolved_source_ids:
+        source = source_by_id[source_id]
+        record_monitoring_event(
+            component=MonitoringComponent.X,
+            status=MonitoringEventStatus.ERROR,
+            source=source,
+            message=source.last_error or "Не удалось определить X User ID.",
+            error_type="XUserResolutionError",
+            task_id=task_id,
+        )
 
     queued = 0
     resolved_ids = set(resolution.resolved_source_ids)
@@ -100,7 +131,6 @@ def poll_sources(self: Task) -> dict[str, int | str]:
 @shared_task(bind=True, name="monitoring.poll_source")
 def poll_source(self: Task, source_id: int) -> dict[str, int | str]:
     """Poll one X source under a Redis lock and persist all returned pages."""
-
     try:
         source = Source.objects.get(pk=source_id)
     except Source.DoesNotExist:
@@ -138,12 +168,32 @@ def poll_source(self: Task, source_id: int) -> dict[str, int | str]:
                         sources=[source],
                     )
                     if source_id in resolution.unresolved_source_ids:
+                        record_monitoring_event(
+                            component=MonitoringComponent.X,
+                            status=MonitoringEventStatus.ERROR,
+                            source=source,
+                            message=source.last_error
+                            or "Не удалось определить X User ID.",
+                            error_type="XUserResolutionError",
+                            task_id=_task_id(self),
+                        )
                         return {"status": "unresolved", "source_id": source_id}
                 source.refresh_from_db()
                 result = ingest_source_posts(source=source, client=client)
-                queued_analyses = _enqueue_pending_posts(source_id)
+                queued_analyses = enqueue_pending_posts(
+                    source=source,
+                    task_id=_task_id(self),
+                )
         except _PERMANENT_X_ERRORS as exc:
             record_source_error([source_id], str(exc))
+            record_monitoring_event(
+                component=MonitoringComponent.X,
+                status=MonitoringEventStatus.ERROR,
+                source=source,
+                message=str(exc),
+                error_type=type(exc).__name__,
+                task_id=_task_id(self),
+            )
             logger.error(
                 "Source polling failed permanently.",
                 extra={
@@ -156,10 +206,22 @@ def poll_source(self: Task, source_id: int) -> dict[str, int | str]:
             return {"status": "error", "source_id": source_id}
         except XApiRateLimitError as exc:
             record_source_error([source_id], str(exc))
-            _retry_task(self, exc, configuration.retry_count, exc.retry_after_seconds())
+            retry_x_task(
+                self,
+                exc,
+                configuration.retry_count,
+                exc.retry_after_seconds(),
+                sources=[source],
+            )
         except XApiTemporaryError as exc:
             record_source_error([source_id], str(exc))
-            _retry_task(self, exc, configuration.retry_count, _retry_countdown(self))
+            retry_x_task(
+                self,
+                exc,
+                configuration.retry_count,
+                retry_countdown(self),
+                sources=[source],
+            )
 
     logger.info(
         "Source polling completed.",
@@ -168,6 +230,17 @@ def poll_source(self: Task, source_id: int) -> dict[str, int | str]:
             "event": "monitoring.source_poll_completed",
             "status": "ok",
         },
+    )
+    record_monitoring_event(
+        component=MonitoringComponent.X,
+        status=MonitoringEventStatus.SUCCESS,
+        source=source,
+        message=(
+            f"Проверка завершена. Новых постов: {result.created_posts}; "
+            f"уже известных: {result.existing_posts}; "
+            f"поставлено на анализ: {queued_analyses}."
+        ),
+        task_id=_task_id(self),
     )
     return {
         "status": "ok",
@@ -184,7 +257,6 @@ def poll_source(self: Task, source_id: int) -> dict[str, int | str]:
 @shared_task(bind=True, name="monitoring.recover_orphaned_work")
 def recover_orphaned_work(self: Task) -> dict[str, int | str]:
     """Requeue stale work records whose original Celery messages were lost."""
-
     result = run_recovery()
     status = (
         "partial"
@@ -214,45 +286,6 @@ def recover_orphaned_work(self: Task) -> dict[str, int | str]:
     }
 
 
-def _enqueue_pending_posts(source_id: int) -> int:
-    """Queue every unprocessed post for the source, including prior backlog."""
-
-    post_ids = list(
-        SourcePost.objects.filter(
-            source_id=source_id,
-            processing_status=SourcePostProcessingStatus.RECEIVED,
-        )
-        .order_by("published_at", "pk")
-        .values_list("pk", flat=True)
-    )
-    queued = 0
-    for post_id in post_ids:
-        claimed = SourcePost.objects.filter(
-            pk=post_id,
-            processing_status=SourcePostProcessingStatus.RECEIVED,
-        ).update(
-            processing_status=SourcePostProcessingStatus.QUEUED,
-            processing_started_at=timezone.now(),
-            last_error="",
-        )
-        if not claimed:
-            continue
-        try:
-            analyze_post.delay(post_id)
-        except Exception:
-            SourcePost.objects.filter(
-                pk=post_id,
-                processing_status=SourcePostProcessingStatus.QUEUED,
-            ).update(
-                processing_status=SourcePostProcessingStatus.RECEIVED,
-                processing_started_at=None,
-                last_error="Analysis task could not be queued.",
-            )
-            continue
-        queued += 1
-    return queued
-
-
 _PERMANENT_X_ERRORS = (
     XApiConfigurationError,
     XApiAuthenticationError,
@@ -260,28 +293,6 @@ _PERMANENT_X_ERRORS = (
     XApiNotFoundError,
     XApiResponseError,
 )
-
-
-def _retry_countdown(task: Task) -> int:
-    retries = getattr(task.request, "retries", 0)
-    return min(_BASE_RETRY_SECONDS * (2**retries), _MAX_RETRY_SECONDS)
-
-
-def _retry_task(task: Task, exc: Exception, retry_count: int, countdown: int) -> None:
-    logger.warning(
-        "Temporary X API failure; retry scheduled.",
-        extra={
-            "event": "monitoring.x_retry_scheduled",
-            "task_id": _task_id(task),
-            "status": "retry",
-            "error_type": type(exc).__name__,
-        },
-    )
-    raise task.retry(
-        exc=exc,
-        countdown=countdown,
-        max_retries=retry_count,
-    )
 
 
 def _task_id(task: Task) -> str:

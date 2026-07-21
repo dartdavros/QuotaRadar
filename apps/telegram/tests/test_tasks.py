@@ -6,6 +6,11 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.configuration.models import SystemConfiguration
+from apps.monitoring.models import (
+    MonitoringComponent,
+    MonitoringEvent,
+    MonitoringEventStatus,
+)
 from apps.telegram.client import (
     TelegramPermanentChatError,
     TelegramTemporaryError,
@@ -63,6 +68,12 @@ class DeliverAnalysisTaskTests(TestCase):
         self.assertEqual(self.delivery.status, DeliveryStatus.SENT)
         self.assertEqual(self.delivery.attempts, 1)
         self.assertEqual(self.delivery.telegram_message_id, "777")
+        event = MonitoringEvent.objects.get(
+            component=MonitoringComponent.TELEGRAM,
+            status=MonitoringEventStatus.SUCCESS,
+            source=self.analysis.source_post.source,
+        )
+        self.assertIn(str(self.delivery.pk), event.message)
 
     @patch("apps.telegram.tasks.delivery_send_lock", rejected_lock)
     @patch("apps.telegram.tasks.TelegramBotApiClient")
@@ -126,6 +137,12 @@ class DeliverAnalysisTaskTests(TestCase):
         self.assertEqual(result["status"], "failed")
         self.target.refresh_from_db()
         self.assertFalse(self.target.enabled)
+        event = MonitoringEvent.objects.get(
+            component=MonitoringComponent.TELEGRAM,
+            status=MonitoringEventStatus.ERROR,
+            source=self.analysis.source_post.source,
+        )
+        self.assertEqual(event.error_type, "TelegramPermanentChatError")
 
     @patch("apps.telegram.tasks.delivery_send_lock", acquired_lock)
     @patch("apps.telegram.tasks.TelegramBotApiClient")

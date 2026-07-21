@@ -13,6 +13,11 @@ from apps.analysis.schemas import AnalysisPayload
 from apps.analysis.tasks import analyze_post
 from apps.analysis.tests.helpers import make_source_post
 from apps.configuration.models import SystemConfiguration
+from apps.monitoring.models import (
+    MonitoringComponent,
+    MonitoringEvent,
+    MonitoringEventStatus,
+)
 from apps.sources.models import SourcePostProcessingStatus
 
 
@@ -75,6 +80,12 @@ class AnalyzePostTaskTests(TestCase):
         self.assertEqual(Analysis.objects.count(), 1)
         client.analyze.assert_called_once()
         self.assertEqual(queue_deliveries.call_count, 2)
+        event = MonitoringEvent.objects.get(
+            component=MonitoringComponent.AI,
+            status=MonitoringEventStatus.SUCCESS,
+            source=self.post.source,
+        )
+        self.assertIn(self.post.external_id, event.message)
 
     @patch("apps.analysis.tasks.create_llm_client")
     def test_irrelevant_post_stops_without_delivery_state(
@@ -134,6 +145,13 @@ class AnalyzePostTaskTests(TestCase):
         self.assertEqual(analysis.error, "LLM request failed.")
         self.post.refresh_from_db()
         self.assertEqual(self.post.processing_status, SourcePostProcessingStatus.FAILED)
+        event = MonitoringEvent.objects.get(
+            component=MonitoringComponent.AI,
+            status=MonitoringEventStatus.ERROR,
+            source=self.post.source,
+        )
+        self.assertEqual(event.error_type, "LlmTemporaryError")
+        self.assertIn("LLM request failed", event.message)
 
     @patch("apps.analysis.tasks.create_llm_client")
     def test_temporary_error_requests_configured_retry(

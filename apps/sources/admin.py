@@ -1,7 +1,12 @@
 """Django Admin for X sources and ingested publications."""
 
+from datetime import timedelta
+
 from django.contrib import admin
+from django.utils import timezone
 from django.utils.html import format_html
+
+from apps.configuration.models import SystemConfiguration
 
 from .models import Source, SourcePost
 
@@ -11,7 +16,7 @@ class SourceAdmin(admin.ModelAdmin):
     list_display = (
         "username_display",
         "provider",
-        "enabled",
+        "monitoring_status",
         "x_user_id",
         "last_post_id",
         "last_checked_at",
@@ -28,6 +33,7 @@ class SourceAdmin(admin.ModelAdmin):
         "last_checked_at",
         "last_success_at",
         "last_error",
+        "monitoring_status",
     )
     fieldsets = (
         (
@@ -43,6 +49,7 @@ class SourceAdmin(admin.ModelAdmin):
                     "last_checked_at",
                     "last_success_at",
                     "last_error",
+                    "monitoring_status",
                 )
             },
         ),
@@ -57,6 +64,24 @@ class SourceAdmin(admin.ModelAdmin):
     @admin.display(description="Источник", ordering="username")
     def username_display(self, obj: Source) -> str:
         return f"@{obj.username}"
+
+    @admin.display(description="Статус")
+    def monitoring_status(self, obj: Source) -> str:
+        configuration = SystemConfiguration.load()
+        if not configuration.monitoring_enabled or not obj.enabled:
+            return "Выключен"
+        if obj.last_error and (
+            obj.last_success_at is None
+            or obj.last_checked_at is None
+            or obj.last_checked_at >= obj.last_success_at
+        ):
+            return "Ошибка"
+        stale_before = timezone.now() - timedelta(
+            seconds=configuration.poll_interval_seconds * 2
+        )
+        if obj.last_checked_at is None or obj.last_checked_at < stale_before:
+            return "Не работает"
+        return "Работает"
 
     @admin.display(boolean=True, description="Есть ошибка")
     def has_error(self, obj: Source) -> bool:

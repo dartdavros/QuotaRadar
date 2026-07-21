@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
 
 from celery import Task, shared_task
-from django.db import transaction
 from django.utils import timezone
 
 from apps.configuration.models import SystemConfiguration
+from apps.monitoring.events import record_monitoring_event
+from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
 
 from .client import (
     TelegramAuthenticationError,
@@ -19,8 +19,15 @@ from .client import (
     TelegramResponseError,
     TelegramTemporaryError,
 )
+from .delivery_state import (
+    increment_attempts,
+    mark_failed,
+    mark_permanent_chat_failure,
+    mark_retry_scheduled,
+    mark_sent,
+)
 from .locks import delivery_send_lock
-from .models import Delivery, DeliveryStatus, DeliveryTargetType
+from .models import Delivery, DeliveryStatus
 from .services import DeliveryMessageError, format_delivery_message
 
 logger = logging.getLogger(__name__)
@@ -87,16 +94,32 @@ def _deliver_locked(
     if delivery.next_attempt_at and delivery.next_attempt_at > timezone.now():
         return _result("retry_scheduled", delivery)
     if not delivery.target.enabled:
-        _mark_failed(delivery.pk, "Delivery target is disabled.")
+        mark_failed(delivery.pk, "Delivery target is disabled.")
+        record_monitoring_event(
+            component=MonitoringComponent.TELEGRAM,
+            status=MonitoringEventStatus.ERROR,
+            source=delivery.analysis.source_post.source,
+            message=f"Доставка {delivery.pk} не выполнена: цель отключена.",
+            error_type="DeliveryTargetDisabled",
+            task_id=_task_id(task),
+        )
         return _result("disabled", delivery)
 
     try:
         text = format_delivery_message(delivery.analysis)
     except DeliveryMessageError as exc:
-        _mark_failed(delivery.pk, str(exc))
+        mark_failed(delivery.pk, str(exc))
+        record_monitoring_event(
+            component=MonitoringComponent.TELEGRAM,
+            status=MonitoringEventStatus.ERROR,
+            source=delivery.analysis.source_post.source,
+            message=f"Ошибка подготовки доставки {delivery.pk}: {exc}",
+            error_type=type(exc).__name__,
+            task_id=_task_id(task),
+        )
         return _result("failed", delivery)
 
-    _increment_attempts(delivery.pk)
+    increment_attempts(delivery.pk)
     try:
         with TelegramBotApiClient() as client:
             message_id = client.send_message(
@@ -106,7 +129,7 @@ def _deliver_locked(
     except TelegramTemporaryError as exc:
         return _retry_or_fail(task=task, delivery=delivery, exc=exc, context=context)
     except TelegramPermanentChatError as exc:
-        _mark_permanent_chat_failure(delivery.pk, str(exc))
+        mark_permanent_chat_failure(delivery.pk, str(exc))
         logger.error(
             "Telegram chat rejected the delivery.",
             extra={
@@ -116,9 +139,17 @@ def _deliver_locked(
                 "error_type": type(exc).__name__,
             },
         )
+        record_monitoring_event(
+            component=MonitoringComponent.TELEGRAM,
+            status=MonitoringEventStatus.ERROR,
+            source=delivery.analysis.source_post.source,
+            message=f"Ошибка доставки {delivery.pk}: {exc}",
+            error_type=type(exc).__name__,
+            task_id=_task_id(task),
+        )
         return _result("failed", delivery)
     except _PERMANENT_DELIVERY_ERRORS as exc:
-        _mark_failed(delivery.pk, str(exc))
+        mark_failed(delivery.pk, str(exc))
         logger.error(
             "Telegram delivery failed permanently.",
             extra={
@@ -128,9 +159,17 @@ def _deliver_locked(
                 "error_type": type(exc).__name__,
             },
         )
+        record_monitoring_event(
+            component=MonitoringComponent.TELEGRAM,
+            status=MonitoringEventStatus.ERROR,
+            source=delivery.analysis.source_post.source,
+            message=f"Ошибка доставки {delivery.pk}: {exc}",
+            error_type=type(exc).__name__,
+            task_id=_task_id(task),
+        )
         return _result("failed", delivery)
 
-    _mark_sent(delivery.pk, message_id)
+    mark_sent(delivery.pk, message_id)
     logger.info(
         "Telegram delivery completed.",
         extra={
@@ -138,6 +177,13 @@ def _deliver_locked(
             "event": "telegram.delivery_completed",
             "status": "sent",
         },
+    )
+    record_monitoring_event(
+        component=MonitoringComponent.TELEGRAM,
+        status=MonitoringEventStatus.SUCCESS,
+        source=delivery.analysis.source_post.source,
+        message=f"Доставка {delivery.pk} успешно отправлена.",
+        task_id=_task_id(task),
     )
     return _result("sent", delivery)
 
@@ -151,7 +197,10 @@ _PERMANENT_DELIVERY_ERRORS = (
 
 def _load_delivery(*, analysis_id: int, target_id: int) -> Delivery | None:
     return (
-        Delivery.objects.select_related("analysis__source_post", "target")
+        Delivery.objects.select_related(
+            "analysis__source_post__source",
+            "target",
+        )
         .filter(analysis_id=analysis_id, target_id=target_id)
         .first()
     )
@@ -170,7 +219,18 @@ def _retry_or_fail(
         countdown = exc.retry_after or min(
             _BASE_RETRY_SECONDS * (2**retries), _MAX_RETRY_SECONDS
         )
-        _mark_retry_scheduled(delivery.pk, str(exc), countdown=countdown)
+        mark_retry_scheduled(delivery.pk, str(exc), countdown=countdown)
+        record_monitoring_event(
+            component=MonitoringComponent.TELEGRAM,
+            status=MonitoringEventStatus.ERROR,
+            source=delivery.analysis.source_post.source,
+            message=(
+                f"Временная ошибка доставки {delivery.pk}: {exc}. "
+                f"Повтор через {countdown} сек."
+            ),
+            error_type=type(exc).__name__,
+            task_id=_task_id(task),
+        )
         logger.warning(
             "Temporary Telegram delivery failure; retry scheduled.",
             extra={
@@ -185,7 +245,7 @@ def _retry_or_fail(
             countdown=countdown,
             max_retries=configuration.retry_count,
         )
-    _mark_failed(delivery.pk, str(exc))
+    mark_failed(delivery.pk, str(exc))
     logger.error(
         "Telegram delivery retries exhausted.",
         extra={
@@ -195,86 +255,15 @@ def _retry_or_fail(
             "error_type": type(exc).__name__,
         },
     )
+    record_monitoring_event(
+        component=MonitoringComponent.TELEGRAM,
+        status=MonitoringEventStatus.ERROR,
+        source=delivery.analysis.source_post.source,
+        message=f"Ошибка доставки {delivery.pk}: {exc}",
+        error_type=type(exc).__name__,
+        task_id=_task_id(task),
+    )
     return _result("failed", delivery)
-
-
-def _increment_attempts(delivery_id: int) -> None:
-    now = timezone.now()
-    with transaction.atomic():
-        delivery = Delivery.objects.select_for_update().get(pk=delivery_id)
-        if delivery.status != DeliveryStatus.PENDING:
-            return
-        delivery.attempts += 1
-        delivery.last_attempt_at = now
-        delivery.next_attempt_at = None
-        delivery.updated_at = now
-        delivery.save(
-            update_fields=(
-                "attempts",
-                "last_attempt_at",
-                "next_attempt_at",
-                "updated_at",
-            )
-        )
-
-
-def _mark_sent(delivery_id: int, message_id: str) -> None:
-    now = timezone.now()
-    Delivery.objects.filter(pk=delivery_id).exclude(status=DeliveryStatus.SENT).update(
-        status=DeliveryStatus.SENT,
-        telegram_message_id=message_id,
-        sent_at=now,
-        next_attempt_at=None,
-        updated_at=now,
-        last_error="",
-    )
-
-
-def _mark_retry_scheduled(
-    delivery_id: int,
-    error: str,
-    *,
-    countdown: int,
-) -> None:
-    now = timezone.now()
-    Delivery.objects.filter(
-        pk=delivery_id,
-        status=DeliveryStatus.PENDING,
-    ).update(
-        last_error=error,
-        next_attempt_at=now + timedelta(seconds=countdown),
-        updated_at=now,
-    )
-
-
-def _mark_failed(delivery_id: int, error: str) -> None:
-    Delivery.objects.filter(pk=delivery_id).exclude(status=DeliveryStatus.SENT).update(
-        status=DeliveryStatus.FAILED,
-        last_error=error,
-        next_attempt_at=None,
-        updated_at=timezone.now(),
-    )
-
-
-def _mark_permanent_chat_failure(delivery_id: int, error: str) -> None:
-    with transaction.atomic():
-        delivery = (
-            Delivery.objects.select_for_update()
-            .select_related("target")
-            .get(pk=delivery_id)
-        )
-        if delivery.status == DeliveryStatus.SENT:
-            return
-        delivery.status = DeliveryStatus.FAILED
-        delivery.last_error = error
-        delivery.next_attempt_at = None
-        delivery.updated_at = timezone.now()
-        delivery.save(
-            update_fields=("status", "last_error", "next_attempt_at", "updated_at")
-        )
-        if delivery.target.target_type == DeliveryTargetType.PRIVATE_CHAT:
-            delivery.target.enabled = False
-            delivery.target.save(update_fields=("enabled", "updated_at"))
 
 
 def _result(status: str, delivery: Delivery) -> dict[str, int | str]:
