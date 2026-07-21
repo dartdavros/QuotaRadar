@@ -46,10 +46,73 @@ class SourceAdminTests(TestCase):
         self.assertNotContains(response, 'name="username"')
         self.assertContains(response, 'name="enabled"')
 
+    def test_enabled_flag_can_be_changed_from_source_detail(self) -> None:
+        source = Source.objects.get(username="OpenAIDevs")
+        source.enabled = False
+        source.save(update_fields=("enabled",))
+
+        response = self.client.post(
+            reverse("admin:sources_source_change", args=(source.pk,)),
+            {"enabled": "on", "_save": "Сохранить"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        source.refresh_from_db()
+        self.assertTrue(source.enabled)
+
     def test_new_sources_cannot_be_added_in_admin(self) -> None:
         response = self.client.get(reverse("admin:sources_source_add"))
 
         self.assertEqual(response.status_code, 403)
+
+    def test_source_list_exposes_management_actions(self) -> None:
+        response = self.client.get(reverse("admin:sources_source_changelist"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Включить выбранные источники")
+        self.assertContains(response, "Выключить выбранные источники")
+        self.assertContains(response, "Подтянуть старые посты выбранных источников")
+        self.assertContains(response, ACTION_CHECKBOX_NAME)
+
+    def test_bulk_action_enables_selected_sources(self) -> None:
+        source = Source.objects.get(username="OpenAIDevs")
+        source.enabled = False
+        source.save(update_fields=("enabled",))
+
+        response = self.client.post(
+            reverse("admin:sources_source_changelist"),
+            {
+                "action": "enable_selected_sources",
+                ACTION_CHECKBOX_NAME: [str(source.pk)],
+                "index": "0",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Включено источников: 1.")
+        source.refresh_from_db()
+        self.assertTrue(source.enabled)
+
+    def test_bulk_action_disables_selected_sources(self) -> None:
+        source = Source.objects.get(username="OpenAIDevs")
+        self.assertTrue(source.enabled)
+
+        response = self.client.post(
+            reverse("admin:sources_source_changelist"),
+            {
+                "action": "disable_selected_sources",
+                ACTION_CHECKBOX_NAME: [str(source.pk)],
+                "index": "0",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Выключено источников: 1.")
+        source.refresh_from_db()
+        self.assertFalse(source.enabled)
 
     def test_source_list_exposes_historical_import_action(self) -> None:
         response = self.client.get(reverse("admin:sources_source_changelist"))

@@ -18,6 +18,7 @@ class SourceAdmin(admin.ModelAdmin):
     list_display = (
         "username_display",
         "provider",
+        "enabled",
         "monitoring_status",
         "x_user_id",
         "last_post_id",
@@ -25,9 +26,14 @@ class SourceAdmin(admin.ModelAdmin):
         "last_success_at",
         "has_error",
     )
+    list_editable = ("enabled",)
     list_filter = ("provider", "enabled")
     search_fields = ("username", "x_user_id", "last_post_id")
-    actions = ("queue_historical_backfill",)
+    actions = (
+        "enable_selected_sources",
+        "disable_selected_sources",
+        "queue_historical_backfill",
+    )
     readonly_fields = (
         "provider",
         "username",
@@ -63,6 +69,24 @@ class SourceAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None) -> bool:  # type: ignore[no-untyped-def]
         return False
+
+    @admin.action(description="Включить выбранные источники")
+    def enable_selected_sources(self, request, queryset) -> None:  # type: ignore[no-untyped-def]
+        updated = queryset.filter(enabled=False).update(enabled=True)
+        self.message_user(
+            request,
+            f"Включено источников: {updated}.",
+            level=messages.SUCCESS,
+        )
+
+    @admin.action(description="Выключить выбранные источники")
+    def disable_selected_sources(self, request, queryset) -> None:  # type: ignore[no-untyped-def]
+        updated = queryset.filter(enabled=True).update(enabled=False)
+        self.message_user(
+            request,
+            f"Выключено источников: {updated}.",
+            level=messages.SUCCESS,
+        )
 
     @admin.action(description="Подтянуть старые посты выбранных источников")
     def queue_historical_backfill(self, request, queryset) -> None:  # type: ignore[no-untyped-def]
