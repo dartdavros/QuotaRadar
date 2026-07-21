@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from django.db import transaction
 from django.utils import timezone
 
+from apps.configuration.models import SystemConfiguration
 from apps.sources.models import Source, SourcePost, SourcePostProcessingStatus
 
 from .normalization import (
@@ -16,9 +17,6 @@ from .normalization import (
     normalize_source_post,
 )
 from .x_api import XApiClient, XApiResponseError, XTimelinePage
-
-_BOOTSTRAP_MAX_RESULTS = 10
-_REGULAR_POLL_MAX_RESULTS = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +80,11 @@ def resolve_source_user_ids(
     )
 
 
-def ingest_source_posts(*, source: Source, client: XApiClient) -> PollResult:
+def ingest_source_posts(
+    source: Source,
+    client: XApiClient,
+    configuration: SystemConfiguration,
+) -> PollResult:
     """Fetch the bounded bootstrap or all new pages, then persist atomically."""
 
     if not source.x_user_id:
@@ -95,9 +97,9 @@ def ingest_source_posts(*, source: Source, client: XApiClient) -> PollResult:
             source.x_user_id,
             since_id=poll_cursor,
             max_results=(
-                _BOOTSTRAP_MAX_RESULTS
+                configuration.bootstrap_post_limit
                 if is_bootstrap
-                else _REGULAR_POLL_MAX_RESULTS
+                else configuration.regular_poll_post_limit
             ),
             max_pages=1 if is_bootstrap else None,
         )

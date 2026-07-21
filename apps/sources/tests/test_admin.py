@@ -1,10 +1,13 @@
+from unittest.mock import patch
+
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from apps.configuration.models import SystemConfiguration
-from apps.sources.models import Source
+from apps.sources.models import Source, SourcePost, SourcePostProcessingStatus
 
 
 class SourceAdminTests(TestCase):
@@ -62,3 +65,58 @@ class SourceAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Работает")
+
+
+class SourcePostAdminTests(TestCase):
+    def setUp(self) -> None:
+        self.user = get_user_model().objects.create_superuser(
+            username="root-posts",
+            email="root-posts@example.test",
+            password="test-password",
+        )
+        self.client.force_login(self.user)
+        source = Source.objects.get(username="OpenAIDevs")
+        self.post = SourcePost.objects.create(
+            source=source,
+            external_id="admin-9001",
+            text="Post",
+            normalized_text="Post",
+            source_url="https://x.com/OpenAIDevs/status/9001",
+            published_at=timezone.now(),
+            raw_data={},
+            processing_status=SourcePostProcessingStatus.FAILED,
+            last_error="Configuration error.",
+        )
+
+    def test_changelist_exposes_bulk_requeue_action(self) -> None:
+        response = self.client.get(reverse("admin:sources_sourcepost_changelist"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Вернуть выбранные ошибочные посты в очередь анализа",
+        )
+        self.assertContains(response, ACTION_CHECKBOX_NAME)
+
+    @patch("apps.monitoring.dispatch.analyze_post.delay")
+    def test_bulk_action_requeues_failed_post(self, delay) -> None:
+        response = self.client.post(
+            reverse("admin:sources_sourcepost_changelist"),
+            {
+                "action": "requeue_failed_posts",
+                ACTION_CHECKBOX_NAME: [str(self.post.pk)],
+                "index": "0",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Поставлено в очередь анализа: 1.")
+        delay.assert_called_once_with(self.post.pk)
+        self.post.refresh_from_db()
+        self.assertEqual(
+            self.post.processing_status,
+            SourcePostProcessingStatus.QUEUED,
+        )
+        self.assertIsNotNone(self.post.processing_started_at)
+        self.assertEqual(self.post.last_error, "")

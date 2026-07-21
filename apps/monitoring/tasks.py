@@ -145,8 +145,8 @@ def poll_source(self: Task, source_id: int) -> dict[str, int | str]:
     }
     logger.info("Source polling started.", extra=context)
 
-    configuration = SystemConfiguration.load()
-    if not configuration.monitoring_enabled:
+    config = SystemConfiguration.load()
+    if not config.monitoring_enabled:
         return {"status": "disabled", "source_id": source_id}
 
     with source_poll_lock(source_id) as acquired:
@@ -179,7 +179,7 @@ def poll_source(self: Task, source_id: int) -> dict[str, int | str]:
                         )
                         return {"status": "unresolved", "source_id": source_id}
                 source.refresh_from_db()
-                result = ingest_source_posts(source=source, client=client)
+                result = ingest_source_posts(source, client, config)
                 queued_analyses = enqueue_pending_posts(
                     source=source,
                     task_id=_task_id(self),
@@ -209,7 +209,7 @@ def poll_source(self: Task, source_id: int) -> dict[str, int | str]:
             retry_x_task(
                 self,
                 exc,
-                configuration.retry_count,
+                config.retry_count,
                 exc.retry_after_seconds(),
                 sources=[source],
             )
@@ -218,7 +218,7 @@ def poll_source(self: Task, source_id: int) -> dict[str, int | str]:
             retry_x_task(
                 self,
                 exc,
-                configuration.retry_count,
+                config.retry_count,
                 retry_countdown(self),
                 sources=[source],
             )

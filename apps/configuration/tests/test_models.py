@@ -10,8 +10,25 @@ class SystemConfigurationTests(TestCase):
 
         self.assertEqual(configuration.pk, SystemConfiguration.SINGLETON_PK)
         self.assertEqual(configuration.poll_interval_seconds, 300)
+        self.assertEqual(configuration.bootstrap_post_limit, 10)
+        self.assertEqual(configuration.regular_poll_post_limit, 5)
         self.assertEqual(configuration.active_prompt.code, "quota_event_classifier")
         self.assertEqual(configuration.active_prompt.version, 1)
+
+    def test_post_limits_must_match_x_api_bounds(self) -> None:
+        configuration = SystemConfiguration.load()
+
+        for field_name, invalid_value in (
+            ("bootstrap_post_limit", 4),
+            ("bootstrap_post_limit", 101),
+            ("regular_poll_post_limit", 4),
+            ("regular_poll_post_limit", 101),
+        ):
+            with self.subTest(field_name=field_name, invalid_value=invalid_value):
+                setattr(configuration, field_name, invalid_value)
+                with self.assertRaises(ValidationError):
+                    configuration.full_clean()
+                configuration.refresh_from_db()
 
     def test_model_rejects_non_singleton_primary_key(self) -> None:
         prompt = PromptTemplate.objects.create(

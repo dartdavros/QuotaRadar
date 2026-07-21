@@ -111,6 +111,11 @@ class PollSourceTaskTests(TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["created_posts"], 3)
         client_class.assert_called_once_with()
+        ingest.assert_called_once_with(
+            self.source,
+            client_class.return_value.__enter__.return_value,
+            self.configuration,
+        )
         event = MonitoringEvent.objects.get(
             component=MonitoringComponent.X,
             status=MonitoringEventStatus.SUCCESS,

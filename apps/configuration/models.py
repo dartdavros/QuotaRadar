@@ -58,6 +58,24 @@ class SystemConfiguration(models.Model):
         default=300,
         validators=(MinValueValidator(1),),
     )
+    bootstrap_post_limit = models.PositiveIntegerField(
+        "Постов при первом опросе",
+        default=10,
+        validators=(MinValueValidator(5), MaxValueValidator(100)),
+        help_text=(
+            "Количество последних постов в единственной странице первого опроса "
+            "источника. Допустимо от 5 до 100."
+        ),
+    )
+    regular_poll_post_limit = models.PositiveIntegerField(
+        "Постов на страницу регулярного опроса",
+        default=5,
+        validators=(MinValueValidator(5), MaxValueValidator(100)),
+        help_text=(
+            "Размер страницы X API при последующих опросах. Если новых постов "
+            "больше, система продолжает пагинацию. Допустимо от 5 до 100."
+        ),
+    )
     llm_provider = models.CharField("Код ИИ-провайдера", max_length=100, blank=True)
     llm_base_url = models.URLField("Базовый URL ИИ-провайдера", blank=True)
     llm_model = models.CharField("Модель", max_length=200, blank=True)

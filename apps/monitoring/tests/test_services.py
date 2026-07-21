@@ -3,7 +3,12 @@ from unittest.mock import Mock
 
 from django.test import TestCase
 
-from apps.monitoring.services import ingest_source_posts, resolve_source_user_ids
+from apps.configuration.models import SystemConfiguration
+from apps.monitoring.services import (
+    PollResult,
+    ingest_source_posts,
+    resolve_source_user_ids,
+)
 from apps.monitoring.tests.helpers import load_json_fixture
 from apps.monitoring.x_api import XApiResponseError, XApiTemporaryError, XTimelinePage
 from apps.sources.models import Source, SourcePost
@@ -41,16 +46,20 @@ class SourceIngestionTests(TestCase):
         self.source.x_user_id = "1001"
         self.source.last_post_id = "99"
         self.source.save()
+        self.configuration = SystemConfiguration.load()
         self.pages = [
             page_from_fixture("timeline_page_1.json"),
             page_from_fixture("timeline_page_2.json"),
         ]
 
+    def ingest(self, client: Mock) -> PollResult:
+        return ingest_source_posts(self.source, client, self.configuration)
+
     def test_pagination_saves_oldest_to_newest_and_is_idempotent(self) -> None:
         client = Mock()
         client.iter_user_posts.return_value = iter(self.pages)
 
-        first = ingest_source_posts(source=self.source, client=client)
+        first = self.ingest(client)
         self.source.refresh_from_db()
 
         client.iter_user_posts.assert_called_once_with(
@@ -75,7 +84,7 @@ class SourceIngestionTests(TestCase):
         self.assertFalse(SourcePost.objects.filter(external_id="105").exists())
 
         client.iter_user_posts.return_value = iter(self.pages)
-        second = ingest_source_posts(source=self.source, client=client)
+        second = self.ingest(client)
 
         self.assertEqual(second.created_posts, 0)
         self.assertEqual(second.existing_posts, 3)
@@ -87,7 +96,7 @@ class SourceIngestionTests(TestCase):
         client = Mock()
         client.iter_user_posts.return_value = iter([self.pages[0]])
 
-        result = ingest_source_posts(source=self.source, client=client)
+        result = self.ingest(client)
 
         client.iter_user_posts.assert_called_once_with(
             "1001",
@@ -99,6 +108,38 @@ class SourceIngestionTests(TestCase):
         self.assertEqual(result.created_posts, 1)
         self.assertEqual(result.ignored_retweets, 1)
         self.assertEqual(result.last_post_id, "105")
+
+    def test_bootstrap_limit_comes_from_system_configuration(self) -> None:
+        self.source.last_post_id = ""
+        self.source.save(update_fields=("last_post_id",))
+        self.configuration.bootstrap_post_limit = 25
+        self.configuration.save(update_fields=("bootstrap_post_limit",))
+        client = Mock()
+        client.iter_user_posts.return_value = iter([self.pages[0]])
+
+        self.ingest(client)
+
+        client.iter_user_posts.assert_called_once_with(
+            "1001",
+            since_id=None,
+            max_results=25,
+            max_pages=1,
+        )
+
+    def test_regular_poll_limit_comes_from_system_configuration(self) -> None:
+        self.configuration.regular_poll_post_limit = 20
+        self.configuration.save(update_fields=("regular_poll_post_limit",))
+        client = Mock()
+        client.iter_user_posts.return_value = iter(self.pages)
+
+        self.ingest(client)
+
+        client.iter_user_posts.assert_called_once_with(
+            "1001",
+            since_id="99",
+            max_results=20,
+            max_pages=None,
+        )
 
     def test_missing_cursor_is_recovered_from_existing_source_posts(self) -> None:
         self.source.last_post_id = ""
@@ -117,7 +158,7 @@ class SourceIngestionTests(TestCase):
             [XTimelinePage(posts=(), includes={}, meta={"result_count": 0}, errors=())]
         )
 
-        result = ingest_source_posts(source=self.source, client=client)
+        result = self.ingest(client)
 
         client.iter_user_posts.assert_called_once_with(
             "1001",
@@ -133,7 +174,7 @@ class SourceIngestionTests(TestCase):
         client = Mock()
         client.iter_user_posts.return_value = iter(self.pages)
 
-        ingest_source_posts(source=self.source, client=client)
+        self.ingest(client)
 
         post = SourcePost.objects.get(external_id="103")
         self.assertEqual(
@@ -163,14 +204,14 @@ class SourceIngestionTests(TestCase):
         client.iter_user_posts.return_value = failing_pages()
 
         with self.assertRaises(XApiTemporaryError):
-            ingest_source_posts(source=self.source, client=client)
+            self.ingest(client)
 
         self.source.refresh_from_db()
         self.assertEqual(self.source.last_post_id, "99")
         self.assertEqual(SourcePost.objects.count(), 0)
 
         client.iter_user_posts.return_value = iter(self.pages)
-        ingest_source_posts(source=self.source, client=client)
+        self.ingest(client)
         self.source.refresh_from_db()
         self.assertEqual(self.source.last_post_id, "105")
         self.assertEqual(SourcePost.objects.count(), 3)
@@ -181,7 +222,7 @@ class SourceIngestionTests(TestCase):
         client = Mock()
         client.iter_user_posts.return_value = iter(self.pages)
 
-        result = ingest_source_posts(source=self.source, client=client)
+        result = self.ingest(client)
 
         self.source.refresh_from_db()
         self.assertEqual(self.source.last_post_id, "200")
@@ -204,7 +245,7 @@ class SourceIngestionTests(TestCase):
         client.iter_user_posts.return_value = iter([invalid])
 
         with self.assertRaises(XApiResponseError):
-            ingest_source_posts(source=self.source, client=client)
+            self.ingest(client)
 
         self.source.refresh_from_db()
         self.assertEqual(self.source.last_post_id, "99")
@@ -221,7 +262,7 @@ class SourceIngestionTests(TestCase):
         client.iter_user_posts.return_value = iter([malformed])
 
         with self.assertRaises(XApiResponseError):
-            ingest_source_posts(source=self.source, client=client)
+            self.ingest(client)
 
         self.source.refresh_from_db()
         self.assertEqual(self.source.last_post_id, "99")

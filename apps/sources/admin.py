@@ -2,13 +2,14 @@
 
 from datetime import timedelta
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.utils import timezone
 from django.utils.html import format_html
 
 from apps.configuration.models import SystemConfiguration
+from apps.monitoring.dispatch import enqueue_posts_for_analysis
 
-from .models import Source, SourcePost
+from .models import Source, SourcePost, SourcePostProcessingStatus
 
 
 @admin.register(Source)
@@ -103,6 +104,7 @@ class SourcePostAdmin(admin.ModelAdmin):
     search_fields = ("external_id", "text", "normalized_text", "source__username")
     date_hierarchy = "published_at"
     ordering = ("-published_at",)
+    actions = ("requeue_failed_posts",)
     readonly_fields = (
         "source",
         "external_id",
@@ -118,6 +120,34 @@ class SourcePostAdmin(admin.ModelAdmin):
     )
     fields = readonly_fields
 
+    @admin.action(description="Вернуть выбранные ошибочные посты в очередь анализа")
+    def requeue_failed_posts(self, request, queryset) -> None:  # type: ignore[no-untyped-def]
+        result = enqueue_posts_for_analysis(
+            post_ids=queryset.values_list("pk", flat=True),
+            eligible_statuses=(SourcePostProcessingStatus.FAILED,),
+        )
+        if result.queued:
+            self.message_user(
+                request,
+                f"Поставлено в очередь анализа: {result.queued}.",
+                level=messages.SUCCESS,
+            )
+        if result.skipped:
+            self.message_user(
+                request,
+                (
+                    f"Пропущено: {result.skipped}. Вернуть в очередь можно только "
+                    "посты со статусом «Ошибка»."
+                ),
+                level=messages.WARNING,
+            )
+        if result.dispatch_failed:
+            self.message_user(
+                request,
+                f"Не удалось поставить в очередь: {result.dispatch_failed}.",
+                level=messages.ERROR,
+            )
+
     @admin.display(description="Источник")
     def source_link(self, obj: SourcePost) -> str:
         return format_html(
@@ -129,6 +159,8 @@ class SourcePostAdmin(admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None) -> bool:  # type: ignore[no-untyped-def]
+        if request.method == "POST" and "action" in request.POST:
+            return super().has_change_permission(request, obj)
         return request.method in {
             "GET",
             "HEAD",

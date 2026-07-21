@@ -19,6 +19,8 @@ class SystemConfigurationAdmin(admin.ModelAdmin):
     list_display = (
         "monitoring_enabled",
         "poll_interval_seconds",
+        "bootstrap_post_limit",
+        "regular_poll_post_limit",
         "llm_provider",
         "llm_model",
         "active_prompt",
@@ -26,7 +28,14 @@ class SystemConfigurationAdmin(admin.ModelAdmin):
     fieldsets = (
         (
             "Мониторинг",
-            {"fields": ("monitoring_enabled", "poll_interval_seconds")},
+            {
+                "fields": (
+                    "monitoring_enabled",
+                    "poll_interval_seconds",
+                    "bootstrap_post_limit",
+                    "regular_poll_post_limit",
+                )
+            },
         ),
         (
             "ИИ-провайдер",
