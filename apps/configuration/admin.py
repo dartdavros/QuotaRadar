@@ -21,6 +21,8 @@ class SystemConfigurationAdmin(admin.ModelAdmin):
         "poll_interval_seconds",
         "bootstrap_post_limit",
         "regular_poll_post_limit",
+        "historical_backfill_post_limit",
+        "telegram_message_timezone",
         "llm_provider",
         "llm_model",
         "active_prompt",
@@ -34,8 +36,13 @@ class SystemConfigurationAdmin(admin.ModelAdmin):
                     "poll_interval_seconds",
                     "bootstrap_post_limit",
                     "regular_poll_post_limit",
+                    "historical_backfill_post_limit",
                 )
             },
+        ),
+        (
+            "Telegram",
+            {"fields": ("telegram_message_timezone",)},
         ),
         (
             "ИИ-провайдер",

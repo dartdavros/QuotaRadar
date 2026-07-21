@@ -104,7 +104,7 @@ def ingest_source_posts(
             max_pages=1 if is_bootstrap else None,
         )
     )
-    prepared, ignored_retweets, newest_external_id = _prepare_posts(source, pages)
+    prepared, ignored_retweets, newest_external_id = prepare_source_posts(source, pages)
 
     created_count = 0
     existing_count = 0
@@ -112,23 +112,12 @@ def ingest_source_posts(
     persisted_last_post_id = source.last_post_id
     with transaction.atomic():
         locked_source = Source.objects.select_for_update().get(pk=source.pk)
-        for payload in prepared:
-            _, created = SourcePost.objects.get_or_create(
-                external_id=payload.external_id,
-                defaults={
-                    "source": locked_source,
-                    "text": payload.text,
-                    "normalized_text": payload.normalized_text,
-                    "source_url": payload.source_url,
-                    "published_at": payload.published_at,
-                    "raw_data": payload.raw_data,
-                    "processing_status": SourcePostProcessingStatus.RECEIVED,
-                },
-            )
-            if created:
-                created_count += 1
-            else:
-                existing_count += 1
+        persistence = persist_source_posts(
+            source=locked_source,
+            prepared=prepared,
+        )
+        created_count = persistence.created_posts
+        existing_count = persistence.existing_posts
 
         if poll_cursor and not locked_source.last_post_id:
             locked_source.last_post_id = poll_cursor
@@ -182,7 +171,50 @@ def record_source_error(source_ids: list[int] | tuple[int, ...], message: str) -
     )
 
 
-def _prepare_posts(
+@dataclass(frozen=True, slots=True)
+class PersistedPosts:
+    created_posts: int
+    existing_posts: int
+    created_post_ids: tuple[int, ...]
+
+
+def persist_source_posts(
+    *,
+    source: Source,
+    prepared: list[NormalizedSourcePost],
+) -> PersistedPosts:
+    """Persist normalized posts idempotently and return newly created row IDs."""
+
+    created_count = 0
+    existing_count = 0
+    created_post_ids: list[int] = []
+    for payload in prepared:
+        post, created = SourcePost.objects.get_or_create(
+            external_id=payload.external_id,
+            defaults={
+                "source": source,
+                "text": payload.text,
+                "normalized_text": payload.normalized_text,
+                "source_url": payload.source_url,
+                "published_at": payload.published_at,
+                "raw_data": payload.raw_data,
+                "processing_status": SourcePostProcessingStatus.RECEIVED,
+            },
+        )
+        if created:
+            created_count += 1
+            created_post_ids.append(post.pk)
+        else:
+            existing_count += 1
+
+    return PersistedPosts(
+        created_posts=created_count,
+        existing_posts=existing_count,
+        created_post_ids=tuple(created_post_ids),
+    )
+
+
+def prepare_source_posts(
     source: Source,
     pages: list[XTimelinePage],
 ) -> tuple[list[NormalizedSourcePost], int, str]:

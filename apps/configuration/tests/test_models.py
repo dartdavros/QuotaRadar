@@ -12,6 +12,8 @@ class SystemConfigurationTests(TestCase):
         self.assertEqual(configuration.poll_interval_seconds, 300)
         self.assertEqual(configuration.bootstrap_post_limit, 10)
         self.assertEqual(configuration.regular_poll_post_limit, 5)
+        self.assertEqual(configuration.historical_backfill_post_limit, 100)
+        self.assertEqual(configuration.telegram_message_timezone, "Europe/Moscow")
         self.assertEqual(configuration.active_prompt.code, "quota_event_classifier")
         self.assertEqual(configuration.active_prompt.version, 1)
 
@@ -23,12 +25,21 @@ class SystemConfigurationTests(TestCase):
             ("bootstrap_post_limit", 101),
             ("regular_poll_post_limit", 4),
             ("regular_poll_post_limit", 101),
+            ("historical_backfill_post_limit", 4),
+            ("historical_backfill_post_limit", 3201),
         ):
             with self.subTest(field_name=field_name, invalid_value=invalid_value):
                 setattr(configuration, field_name, invalid_value)
                 with self.assertRaises(ValidationError):
                     configuration.full_clean()
                 configuration.refresh_from_db()
+
+    def test_telegram_timezone_must_be_valid_iana_name(self) -> None:
+        configuration = SystemConfiguration.load()
+        configuration.telegram_message_timezone = "Not/A-Timezone"
+
+        with self.assertRaises(ValidationError):
+            configuration.full_clean()
 
     def test_model_rejects_non_singleton_primary_key(self) -> None:
         prompt = PromptTemplate.objects.create(

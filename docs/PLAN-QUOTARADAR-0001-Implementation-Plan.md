@@ -260,6 +260,7 @@ GET /2/users/{user_id}/tweets
 ```text
 poll_sources
 poll_source(source_id)
+backfill_source(source_id)
 ```
 
 Требования:
@@ -269,7 +270,9 @@ poll_source(source_id)
 - Redis-lock на источник;
 - сохранение постов от старого к новому;
 - обновление `last_post_id` только после успешного сохранения страницы данных;
-- повторный запуск не создаёт дубликаты.
+- повторный запуск не создаёт дубликаты;
+- `backfill_source` использует `until_id`, ограничение из `historical_backfill_post_limit` и не изменяет `last_post_id`;
+- исторический импорт ставит на анализ только созданные им посты.
 
 ### 3.4. Ошибки X API
 
@@ -497,11 +500,13 @@ deliver_analysis(analysis_id, target_id)
 
 {message_ru}
 
+Опубликовано: {published_at_human}
 Источник: {source_url}
 ```
 
 Требования:
 
+- исходная дата форматируется в `telegram_message_timezone` и выводится перед ссылкой;
 - отдельная задача на каждого получателя;
 - ошибка одного target не блокирует остальные;
 - успешная доставка не повторяется;

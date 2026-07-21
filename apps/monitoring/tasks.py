@@ -9,6 +9,7 @@ from celery import Task, shared_task
 from apps.configuration.models import SystemConfiguration
 from apps.sources.models import Source
 
+from .backfill_tasks import backfill_source as backfill_source
 from .dispatch import enqueue_pending_posts
 from .events import record_monitoring_event
 from .locks import source_poll_lock

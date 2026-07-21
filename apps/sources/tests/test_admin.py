@@ -51,6 +51,34 @@ class SourceAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_source_list_exposes_historical_import_action(self) -> None:
+        response = self.client.get(reverse("admin:sources_source_changelist"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Подтянуть старые посты выбранных источников")
+        self.assertContains(response, ACTION_CHECKBOX_NAME)
+
+    @patch("apps.sources.admin.backfill_source.delay")
+    def test_historical_import_action_queues_selected_sources(self, delay) -> None:
+        source = Source.objects.get(username="OpenAIDevs")
+
+        response = self.client.post(
+            reverse("admin:sources_source_changelist"),
+            {
+                "action": "queue_historical_backfill",
+                ACTION_CHECKBOX_NAME: [str(source.pk)],
+                "index": "0",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Задач исторического импорта поставлено в очередь: 1.",
+        )
+        delay.assert_called_once_with(source.pk)
+
     def test_source_list_displays_runtime_status(self) -> None:
         configuration = SystemConfiguration.load()
         configuration.monitoring_enabled = True

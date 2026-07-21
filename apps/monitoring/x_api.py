@@ -169,12 +169,18 @@ class XApiClient:
         *,
         since_id: str | None,
         max_results: int,
+        until_id: str | None = None,
         max_pages: int | None = None,
+        max_total_results: int | None = None,
     ) -> Iterator[XTimelinePage]:
         if not user_id.isdigit():
             raise XApiResponseError("Configured X User ID is invalid.")
         if since_id and not since_id.isdigit():
             raise XApiResponseError("Stored X Post cursor is invalid.")
+        if until_id and not until_id.isdigit():
+            raise XApiResponseError("Stored X Post history cursor is invalid.")
+        if since_id and until_id:
+            raise ValueError("X timeline since_id and until_id are mutually exclusive.")
         if not _X_TIMELINE_MIN_RESULTS <= max_results <= _X_TIMELINE_MAX_RESULTS:
             raise ValueError(
                 "X timeline max_results must be between "
@@ -182,13 +188,23 @@ class XApiClient:
             )
         if max_pages is not None and max_pages < 1:
             raise ValueError("X timeline max_pages must be at least 1.")
+        if max_total_results is not None and max_total_results < 1:
+            raise ValueError("X timeline max_total_results must be at least 1.")
 
         pagination_token: str | None = None
         seen_tokens: set[str] = set()
         page_number = 0
+        returned_results = 0
         while True:
+            request_max_results = max_results
+            if max_total_results is not None:
+                remaining = max_total_results - returned_results
+                request_max_results = max(
+                    _X_TIMELINE_MIN_RESULTS,
+                    min(max_results, remaining),
+                )
             params: dict[str, str | int] = {
-                "max_results": max_results,
+                "max_results": request_max_results,
                 "exclude": "retweets",
                 "tweet.fields": _TWEET_FIELDS,
                 "expansions": _EXPANSIONS,
@@ -196,6 +212,8 @@ class XApiClient:
             }
             if since_id:
                 params["since_id"] = since_id
+            if until_id:
+                params["until_id"] = until_id
             if pagination_token:
                 params["pagination_token"] = pagination_token
 
@@ -217,14 +235,20 @@ class XApiClient:
             ):
                 raise XApiResponseError("X timeline returned malformed metadata.")
 
+            if max_total_results is not None:
+                remaining = max_total_results - returned_results
+                data = data[:remaining]
             yield XTimelinePage(
                 posts=tuple(data),
                 includes=includes,
                 meta=meta,
                 errors=tuple(item for item in errors if isinstance(item, dict)),
             )
+            returned_results += len(data)
             page_number += 1
             if max_pages is not None and page_number >= max_pages:
+                break
+            if max_total_results is not None and returned_results >= max_total_results:
                 break
 
             next_token = meta.get("next_token")

@@ -27,3 +27,5 @@ class SystemConfigurationAdminTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'name="bootstrap_post_limit"')
         self.assertContains(response, 'name="regular_poll_post_limit"')
+        self.assertContains(response, 'name="historical_backfill_post_limit"')
+        self.assertContains(response, 'name="telegram_message_timezone"')

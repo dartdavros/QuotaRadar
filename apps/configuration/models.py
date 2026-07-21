@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -76,6 +77,24 @@ class SystemConfiguration(models.Model):
             "больше, система продолжает пагинацию. Допустимо от 5 до 100."
         ),
     )
+    historical_backfill_post_limit = models.PositiveIntegerField(
+        "Постов за исторический импорт",
+        default=100,
+        validators=(MinValueValidator(5), MaxValueValidator(3200)),
+        help_text=(
+            "Максимальное количество старых постов, загружаемых одним ручным "
+            "импортом для выбранного источника. Допустимо от 5 до 3200."
+        ),
+    )
+    telegram_message_timezone = models.CharField(
+        "Часовой пояс даты в Telegram",
+        max_length=64,
+        default="Europe/Moscow",
+        help_text=(
+            "IANA-имя часового пояса для даты исходной публикации, например "
+            "Europe/Moscow или UTC."
+        ),
+    )
     llm_provider = models.CharField("Код ИИ-провайдера", max_length=100, blank=True)
     llm_base_url = models.URLField("Базовый URL ИИ-провайдера", blank=True)
     llm_model = models.CharField("Модель", max_length=200, blank=True)
@@ -125,6 +144,16 @@ class SystemConfiguration(models.Model):
             raise ValidationError(
                 {"active_prompt": "Выбранный шаблон промпта должен быть активен."}
             )
+        try:
+            ZoneInfo(self.telegram_message_timezone)
+        except (TypeError, ValueError, ZoneInfoNotFoundError):
+            raise ValidationError(
+                {
+                    "telegram_message_timezone": (
+                        "Укажите корректное IANA-имя часового пояса."
+                    )
+                }
+            ) from None
 
     def save(self, *args: object, **kwargs: object) -> None:
         if self.pk is None:

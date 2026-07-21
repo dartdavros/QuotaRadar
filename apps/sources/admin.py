@@ -7,6 +7,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 
 from apps.configuration.models import SystemConfiguration
+from apps.monitoring.backfill_tasks import backfill_source
 from apps.monitoring.dispatch import enqueue_posts_for_analysis
 
 from .models import Source, SourcePost, SourcePostProcessingStatus
@@ -26,6 +27,7 @@ class SourceAdmin(admin.ModelAdmin):
     )
     list_filter = ("provider", "enabled")
     search_fields = ("username", "x_user_id", "last_post_id")
+    actions = ("queue_historical_backfill",)
     readonly_fields = (
         "provider",
         "username",
@@ -61,6 +63,35 @@ class SourceAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None) -> bool:  # type: ignore[no-untyped-def]
         return False
+
+    @admin.action(description="Подтянуть старые посты выбранных источников")
+    def queue_historical_backfill(self, request, queryset) -> None:  # type: ignore[no-untyped-def]
+        queued = 0
+        failed = 0
+        for source in queryset.order_by("pk"):
+            try:
+                backfill_source.delay(source.pk)
+            except Exception:
+                failed += 1
+            else:
+                queued += 1
+
+        if queued:
+            limit = SystemConfiguration.load().historical_backfill_post_limit
+            self.message_user(
+                request,
+                (
+                    f"Задач исторического импорта поставлено в очередь: {queued}. "
+                    f"Лимит на источник: {limit} постов."
+                ),
+                level=messages.SUCCESS,
+            )
+        if failed:
+            self.message_user(
+                request,
+                f"Не удалось поставить в очередь задач: {failed}.",
+                level=messages.ERROR,
+            )
 
     @admin.display(description="Источник", ordering="username")
     def username_display(self, obj: Source) -> str:

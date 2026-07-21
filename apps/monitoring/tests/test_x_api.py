@@ -192,3 +192,49 @@ class XApiClientTests(SimpleTestCase):
                     max_results=3,
                 )
             )
+
+    def test_history_cursor_and_total_limit_bound_backfill_requests(self) -> None:
+        page = {
+            "data": [
+                {
+                    "id": str(post_id),
+                    "text": f"Post {post_id}",
+                    "created_at": "2026-07-01T10:00:00.000Z",
+                }
+                for post_id in range(190, 185, -1)
+            ],
+            "meta": {"result_count": 5, "next_token": "unused-token"},
+        }
+        http_client = Mock()
+        http_client.get.return_value = httpx.Response(200, json=page)
+        client = XApiClient(http_client=http_client, bearer_token="secret-token")
+
+        pages = list(
+            client.iter_user_posts(
+                "1001",
+                since_id=None,
+                until_id="199",
+                max_results=5,
+                max_total_results=3,
+            )
+        )
+
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(len(pages[0].posts), 3)
+        params = http_client.get.call_args.kwargs["params"]
+        self.assertEqual(params["until_id"], "199")
+        self.assertNotIn("since_id", params)
+        self.assertEqual(http_client.get.call_count, 1)
+
+    def test_rejects_combined_new_and_history_cursors(self) -> None:
+        client = XApiClient(http_client=Mock(), bearer_token="secret-token")
+
+        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+            list(
+                client.iter_user_posts(
+                    "1001",
+                    since_id="100",
+                    until_id="99",
+                    max_results=5,
+                )
+            )

@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from apps.configuration.models import SystemConfiguration
 from apps.telegram.models import (
     Delivery,
     DeliveryStatus,
@@ -27,8 +28,19 @@ class DeliveryServiceTests(TestCase):
             message,
             "Codex: повышены лимиты\n\n"
             "OpenAI временно увеличила лимиты Codex на 50%.\n\n"
+            "Опубликовано: 20 июля 2026, 13:00 МСК\n"
             "Источник: https://x.com/OpenAIDevs/status/5001",
         )
+
+    def test_message_date_uses_configured_timezone(self) -> None:
+        analysis = create_relevant_analysis(external_id="timezone-5001")
+        configuration = SystemConfiguration.load()
+        configuration.telegram_message_timezone = "UTC"
+        configuration.save(update_fields=("telegram_message_timezone",))
+
+        message = format_delivery_message(analysis)
+
+        self.assertIn("Опубликовано: 20 июля 2026, 10:00 UTC", message)
 
     def test_fan_out_creates_one_task_per_enabled_target(self) -> None:
         analysis = create_relevant_analysis()
@@ -118,7 +130,9 @@ class DeliveryRequeueServiceTests(TestCase):
         )
 
     @patch("apps.telegram.tasks.deliver_analysis.delay")
-    def test_requeue_resets_failed_delivery_and_dispatches_new_task(self, delay) -> None:
+    def test_requeue_resets_failed_delivery_and_dispatches_new_task(
+        self, delay
+    ) -> None:
         result = requeue_failed_deliveries(delivery_ids=(self.delivery.pk,))
 
         self.assertEqual(result.requested, 1)
@@ -158,4 +172,3 @@ class DeliveryRequeueServiceTests(TestCase):
         self.assertEqual(result.queued, 0)
         self.assertEqual(result.skipped, 1)
         delay.assert_not_called()
-

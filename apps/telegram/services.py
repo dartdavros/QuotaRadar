@@ -3,18 +3,36 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Iterable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db import transaction
 from django.utils import timezone
 
 from apps.analysis.models import Analysis
+from apps.configuration.models import SystemConfiguration
 from apps.monitoring.events import record_monitoring_event
 from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
 
 from .models import Delivery, DeliveryStatus, DeliveryTarget
 
 TELEGRAM_MESSAGE_LIMIT = 4096
+_RUSSIAN_MONTHS = (
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
+)
+_TIMEZONE_LABELS = {"Europe/Moscow": "МСК"}
 
 
 class DeliveryMessageError(ValueError):
@@ -43,10 +61,38 @@ def format_delivery_message(analysis: Analysis) -> str:
     source_url = analysis.source_post.source_url.strip()
     if not title or not message or not source_url:
         raise DeliveryMessageError("Relevant analysis is missing delivery content.")
-    payload = f"{title}\n\n{message}\n\nИсточник: {source_url}"
+    configuration = SystemConfiguration.load()
+    published_at = _format_publication_date(
+        analysis.source_post.published_at,
+        configuration.telegram_message_timezone,
+    )
+    payload = (
+        f"{title}\n\n{message}\n\n"
+        f"Опубликовано: {published_at}\n"
+        f"Источник: {source_url}"
+    )
     if len(payload) > TELEGRAM_MESSAGE_LIMIT:
         raise DeliveryMessageError("Telegram message exceeds 4096 characters.")
     return payload
+
+
+def _format_publication_date(value: datetime, timezone_name: str) -> str:
+    try:
+        target_timezone = ZoneInfo(timezone_name)
+    except (TypeError, ValueError, ZoneInfoNotFoundError):
+        raise DeliveryMessageError(
+            "Telegram publication timezone is invalid."
+        ) from None
+
+    local_value = timezone.localtime(value, target_timezone)
+    timezone_label = (
+        _TIMEZONE_LABELS.get(timezone_name) or local_value.tzname() or timezone_name
+    )
+    month = _RUSSIAN_MONTHS[local_value.month - 1]
+    return (
+        f"{local_value.day} {month} {local_value.year}, "
+        f"{local_value:%H:%M} {timezone_label}"
+    )
 
 
 @transaction.atomic
@@ -179,4 +225,3 @@ def requeue_failed_deliveries(
         skipped=skipped,
         dispatch_failed=dispatch_failed,
     )
-
