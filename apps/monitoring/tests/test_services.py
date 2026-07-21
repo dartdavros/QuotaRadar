@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from unittest.mock import Mock
 
 from django.test import TestCase
@@ -52,6 +53,12 @@ class SourceIngestionTests(TestCase):
         first = ingest_source_posts(source=self.source, client=client)
         self.source.refresh_from_db()
 
+        client.iter_user_posts.assert_called_once_with(
+            "1001",
+            since_id="99",
+            max_results=5,
+            max_pages=None,
+        )
         self.assertEqual(first.created_posts, 3)
         self.assertEqual(first.ignored_retweets, 1)
         self.assertEqual(self.source.last_post_id, "105")
@@ -73,6 +80,54 @@ class SourceIngestionTests(TestCase):
         self.assertEqual(second.created_posts, 0)
         self.assertEqual(second.existing_posts, 3)
         self.assertEqual(SourcePost.objects.count(), 3)
+
+    def test_bootstrap_fetches_only_ten_latest_posts_from_one_page(self) -> None:
+        self.source.last_post_id = ""
+        self.source.save(update_fields=("last_post_id",))
+        client = Mock()
+        client.iter_user_posts.return_value = iter([self.pages[0]])
+
+        result = ingest_source_posts(source=self.source, client=client)
+
+        client.iter_user_posts.assert_called_once_with(
+            "1001",
+            since_id=None,
+            max_results=10,
+            max_pages=1,
+        )
+        self.assertEqual(result.pages, 1)
+        self.assertEqual(result.created_posts, 1)
+        self.assertEqual(result.ignored_retweets, 1)
+        self.assertEqual(result.last_post_id, "105")
+
+    def test_missing_cursor_is_recovered_from_existing_source_posts(self) -> None:
+        self.source.last_post_id = ""
+        self.source.save(update_fields=("last_post_id",))
+        SourcePost.objects.create(
+            source=self.source,
+            external_id="98",
+            text="Existing post",
+            normalized_text="Existing post",
+            source_url="https://x.com/OpenAIDevs/status/98",
+            published_at=datetime(2026, 7, 19, 10, 0, tzinfo=timezone.utc),
+            raw_data={},
+        )
+        client = Mock()
+        client.iter_user_posts.return_value = iter(
+            [XTimelinePage(posts=(), includes={}, meta={"result_count": 0}, errors=())]
+        )
+
+        result = ingest_source_posts(source=self.source, client=client)
+
+        client.iter_user_posts.assert_called_once_with(
+            "1001",
+            since_id="98",
+            max_results=5,
+            max_pages=None,
+        )
+        self.source.refresh_from_db()
+        self.assertEqual(result.last_post_id, "98")
+        self.assertEqual(self.source.last_post_id, "98")
 
     def test_long_text_quote_urls_article_and_alt_text_are_preserved(self) -> None:
         client = Mock()

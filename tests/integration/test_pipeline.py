@@ -41,7 +41,14 @@ class _FakeXClient:
     def __init__(self, post: dict[str, Any]) -> None:
         self.post = post
 
-    def iter_user_posts(self, user_id: str, *, since_id: str | None):
+    def iter_user_posts(
+        self,
+        user_id: str,
+        *,
+        since_id: str | None,
+        max_results: int,
+        max_pages: int | None = None,
+    ):
         yield XTimelinePage(
             posts=(self.post,),
             includes={},

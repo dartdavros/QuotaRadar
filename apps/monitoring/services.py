@@ -17,6 +17,9 @@ from .normalization import (
 )
 from .x_api import XApiClient, XApiResponseError, XTimelinePage
 
+_BOOTSTRAP_MAX_RESULTS = 10
+_REGULAR_POLL_MAX_RESULTS = 5
+
 
 @dataclass(frozen=True, slots=True)
 class ResolutionResult:
@@ -80,15 +83,23 @@ def resolve_source_user_ids(
 
 
 def ingest_source_posts(*, source: Source, client: XApiClient) -> PollResult:
-    """Fetch every page, then atomically persist posts and advance the cursor."""
+    """Fetch the bounded bootstrap or all new pages, then persist atomically."""
 
     if not source.x_user_id:
         raise ValueError("Source X User ID is required before polling.")
 
+    poll_cursor = _resolve_poll_cursor(source)
+    is_bootstrap = poll_cursor is None
     pages = list(
         client.iter_user_posts(
             source.x_user_id,
-            since_id=source.last_post_id or None,
+            since_id=poll_cursor,
+            max_results=(
+                _BOOTSTRAP_MAX_RESULTS
+                if is_bootstrap
+                else _REGULAR_POLL_MAX_RESULTS
+            ),
+            max_pages=1 if is_bootstrap else None,
         )
     )
     prepared, ignored_retweets, newest_external_id = _prepare_posts(source, pages)
@@ -117,6 +128,8 @@ def ingest_source_posts(*, source: Source, client: XApiClient) -> PollResult:
             else:
                 existing_count += 1
 
+        if poll_cursor and not locked_source.last_post_id:
+            locked_source.last_post_id = poll_cursor
         if newest_external_id:
             locked_source.last_post_id = max(
                 (locked_source.last_post_id, newest_external_id),
@@ -142,6 +155,19 @@ def ingest_source_posts(*, source: Source, client: XApiClient) -> PollResult:
         existing_posts=existing_count,
         ignored_retweets=ignored_retweets,
         last_post_id=persisted_last_post_id,
+    )
+
+
+def _resolve_poll_cursor(source: Source) -> str | None:
+    """Return the saved cursor or recover it from this source's stored posts."""
+
+    if source.last_post_id:
+        return source.last_post_id
+    return (
+        SourcePost.objects.filter(source_id=source.pk)
+        .order_by("-published_at", "-external_id")
+        .values_list("external_id", flat=True)
+        .first()
     )
 
 

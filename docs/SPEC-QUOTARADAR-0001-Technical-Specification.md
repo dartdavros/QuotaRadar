@@ -46,15 +46,27 @@ GET https://api.x.com/2/users/{user_id}/tweets
 Authorization: Bearer <x_bearer_token>
 ```
 
-Обязательные параметры:
+Общие обязательные параметры:
 
 ```text
-since_id=<last_post_id>
-max_results=100
 exclude=retweets
 tweet.fields=id,text,created_at,author_id,entities,referenced_tweets,note_tweet,article,attachments,edit_history_tweet_ids,in_reply_to_user_id
 expansions=referenced_tweets.id,referenced_tweets.id.author_id,attachments.media_keys
 media.fields=media_key,type,url,preview_image_url,alt_text
+```
+
+Параметры зависят от режима polling:
+
+```text
+Первичная загрузка источника:
+since_id не передаётся
+max_results=10
+получается только первая страница
+
+Последующие проверки:
+since_id=<last_post_id>
+max_results=5
+при наличии next_token получаются все страницы
 ```
 
 Ответы аккаунтов не исключаются и передаются на ИИ-анализ.
@@ -62,7 +74,10 @@ media.fields=media_key,type,url,preview_image_url,alt_text
 ### FR-003. Инкрементальный polling
 
 - Для каждого источника хранится `last_post_id`.
+- Если у конкретного источника отсутствуют и `last_post_id`, и сохранённые `SourcePost`, система получает не более 10 последних постов одной страницей.
+- Если `last_post_id` отсутствует, но посты источника уже сохранены, курсор восстанавливается из последнего сохранённого Post ID.
 - При последующих запросах используется `since_id`.
+- Размер страницы последующего polling — 5 постов, минимально допустимое значение X API.
 - Если ответ содержит `next_token`, система должна получить все страницы.
 - Посты обрабатываются от старого к новому.
 - `last_post_id` обновляется только после успешного сохранения всех полученных постов.

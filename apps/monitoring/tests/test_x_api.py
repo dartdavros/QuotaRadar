@@ -27,7 +27,13 @@ class XApiClientTests(SimpleTestCase):
         client = XApiClient(http_client=http_client, bearer_token="secret-token")
 
         users = client.lookup_users(["OpenAIDevs", "ClaudeDevs"])
-        pages = list(client.iter_user_posts("1001", since_id="99"))
+        pages = list(
+            client.iter_user_posts(
+                "1001",
+                since_id="99",
+                max_results=5,
+            )
+        )
 
         self.assertEqual(users["openaidevs"], "1001")
         self.assertEqual(users["claudedevs"], "2002")
@@ -35,6 +41,7 @@ class XApiClientTests(SimpleTestCase):
         first_timeline_call = http_client.get.call_args_list[1]
         second_timeline_call = http_client.get.call_args_list[2]
         self.assertEqual(first_timeline_call.kwargs["params"]["since_id"], "99")
+        self.assertEqual(first_timeline_call.kwargs["params"]["max_results"], 5)
         self.assertEqual(first_timeline_call.kwargs["params"]["exclude"], "retweets")
         self.assertNotIn("pagination_token", first_timeline_call.kwargs["params"])
         self.assertEqual(
@@ -140,6 +147,48 @@ class XApiClientTests(SimpleTestCase):
         client = XApiClient(http_client=http_client, bearer_token="secret-token")
 
         with self.assertRaises(XApiResponseError):
-            list(client.iter_user_posts("1001", since_id="99"))
+            list(
+                client.iter_user_posts(
+                    "1001",
+                    since_id="99",
+                    max_results=5,
+                )
+            )
 
         self.assertEqual(http_client.get.call_count, 2)
+
+    def test_page_limit_stops_bootstrap_without_following_next_token(self) -> None:
+        http_client = Mock()
+        http_client.get.return_value = httpx.Response(
+            200,
+            json=load_json_fixture("timeline_page_1.json"),
+        )
+        client = XApiClient(http_client=http_client, bearer_token="secret-token")
+
+        pages = list(
+            client.iter_user_posts(
+                "1001",
+                since_id=None,
+                max_results=10,
+                max_pages=1,
+            )
+        )
+
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(http_client.get.call_count, 1)
+        params = http_client.get.call_args.kwargs["params"]
+        self.assertEqual(params["max_results"], 10)
+        self.assertNotIn("since_id", params)
+        self.assertNotIn("pagination_token", params)
+
+    def test_rejects_timeline_page_size_below_x_minimum(self) -> None:
+        client = XApiClient(http_client=Mock(), bearer_token="secret-token")
+
+        with self.assertRaisesRegex(ValueError, "between 5 and 100"):
+            list(
+                client.iter_user_posts(
+                    "1001",
+                    since_id="99",
+                    max_results=3,
+                )
+            )

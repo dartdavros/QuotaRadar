@@ -19,6 +19,8 @@ from apps.secrets.services import SecretNotConfiguredError, get_secret
 
 X_API_BASE_URL = "https://api.x.com"
 _X_REQUEST_TIMEOUT_SECONDS = 30
+_X_TIMELINE_MIN_RESULTS = 5
+_X_TIMELINE_MAX_RESULTS = 100
 _TWEET_FIELDS = ",".join(
     (
         "id",
@@ -166,17 +168,27 @@ class XApiClient:
         user_id: str,
         *,
         since_id: str | None,
+        max_results: int,
+        max_pages: int | None = None,
     ) -> Iterator[XTimelinePage]:
         if not user_id.isdigit():
             raise XApiResponseError("Configured X User ID is invalid.")
         if since_id and not since_id.isdigit():
             raise XApiResponseError("Stored X Post cursor is invalid.")
+        if not _X_TIMELINE_MIN_RESULTS <= max_results <= _X_TIMELINE_MAX_RESULTS:
+            raise ValueError(
+                "X timeline max_results must be between "
+                f"{_X_TIMELINE_MIN_RESULTS} and {_X_TIMELINE_MAX_RESULTS}."
+            )
+        if max_pages is not None and max_pages < 1:
+            raise ValueError("X timeline max_pages must be at least 1.")
 
         pagination_token: str | None = None
         seen_tokens: set[str] = set()
+        page_number = 0
         while True:
             params: dict[str, str | int] = {
-                "max_results": 100,
+                "max_results": max_results,
                 "exclude": "retweets",
                 "tweet.fields": _TWEET_FIELDS,
                 "expansions": _EXPANSIONS,
@@ -211,6 +223,9 @@ class XApiClient:
                 meta=meta,
                 errors=tuple(item for item in errors if isinstance(item, dict)),
             )
+            page_number += 1
+            if max_pages is not None and page_number >= max_pages:
+                break
 
             next_token = meta.get("next_token")
             if next_token is None or next_token == "":
