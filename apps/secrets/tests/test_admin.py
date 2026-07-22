@@ -5,6 +5,7 @@ from django.urls import reverse
 
 from apps.secrets.models import EncryptedSecret, SecretCode
 from apps.secrets.services import get_secret, set_secret
+from tests._otp import force_login_verified
 
 
 class EncryptedSecretAdminPermissionTests(TestCase):
@@ -33,7 +34,7 @@ class EncryptedSecretAdminPermissionTests(TestCase):
 
     def test_user_without_value_permission_does_not_receive_plaintext(self) -> None:
         user = self._create_user_with_permissions("metadata", "view_encryptedsecret")
-        self.client.force_login(user)
+        force_login_verified(self.client, user)
 
         response = self.client.get(self.url)
 
@@ -47,7 +48,7 @@ class EncryptedSecretAdminPermissionTests(TestCase):
             "view_encryptedsecret",
             "view_secret_value",
         )
-        self.client.force_login(user)
+        force_login_verified(self.client, user)
 
         response = self.client.get(self.url)
 
@@ -61,7 +62,7 @@ class EncryptedSecretAdminPermissionTests(TestCase):
             "change_encryptedsecret",
             "change_secret_value",
         )
-        self.client.force_login(user)
+        force_login_verified(self.client, user)
         replacement = "http://new-user:new-password@proxy.example:8081"
 
         response = self.client.post(

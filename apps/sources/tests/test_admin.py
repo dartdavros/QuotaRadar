@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from apps.configuration.models import SystemConfiguration
 from apps.sources.models import Source, SourcePost, SourcePostProcessingStatus
+from tests._otp import force_login_verified
 
 
 class SourceAdminTests(TestCase):
@@ -17,7 +18,7 @@ class SourceAdminTests(TestCase):
             email="root@example.test",
             password="test-password",
         )
-        self.client.force_login(self.user)
+        force_login_verified(self.client, self.user)
 
     def test_source_change_page_displays_polling_state(self) -> None:
         source = Source.objects.get(username="OpenAIDevs")
@@ -167,7 +168,7 @@ class SourcePostAdminTests(TestCase):
             email="root-posts@example.test",
             password="test-password",
         )
-        self.client.force_login(self.user)
+        force_login_verified(self.client, self.user)
         source = Source.objects.get(username="OpenAIDevs")
         self.post = SourcePost.objects.create(
             source=source,

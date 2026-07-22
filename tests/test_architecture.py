@@ -165,3 +165,48 @@ class DeploymentGuardTests(SimpleTestCase):
         )
         self.assertTrue(settings.SESSION_COOKIE_SECURE)
         self.assertTrue(settings.CSRF_COOKIE_SECURE)
+
+
+class TwoFactorGuardTests(SimpleTestCase):
+    """Guards against silently rolling back two-factor authentication.
+
+    The admin is the only web-facing surface of the application, so OTP must
+    stay mandatory: the admin site must require verification, OTPMiddleware
+    must be wired so ``user.is_verified()`` works, and the login entrypoint
+    must point at the two-factor wizard rather than the stock admin login.
+    """
+
+    def test_admin_site_requires_otp_verification(self) -> None:
+        from two_factor.admin import AdminSiteOTPRequiredMixin
+
+        from django.contrib import admin
+
+        self.assertIsInstance(admin.site, AdminSiteOTPRequiredMixin)
+
+    def test_otp_middleware_is_enabled(self) -> None:
+        from django.conf import settings
+
+        self.assertIn("django_otp.middleware.OTPMiddleware", settings.MIDDLEWARE)
+
+    def test_login_routes_through_two_factor_wizard(self) -> None:
+        from django.conf import settings
+
+        self.assertEqual(settings.LOGIN_URL, "two_factor:login")
+        self.assertEqual(settings.LOGIN_REDIRECT_URL, "/admin/")
+
+    def test_totp_issuer_is_configured(self) -> None:
+        from django.conf import settings
+
+        self.assertTrue(settings.OTP_TOTP_ISSUER)
+
+    def test_otp_apps_are_installed(self) -> None:
+        from django.conf import settings
+
+        required_apps = {
+            "django_otp",
+            "django_otp.plugins.otp_totp",
+            "django_otp.plugins.otp_static",
+            "two_factor",
+            "formtools",
+        }
+        self.assertTrue(required_apps.issubset(set(settings.INSTALLED_APPS)))

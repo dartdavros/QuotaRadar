@@ -14,6 +14,7 @@ from apps.telegram.models import (
 )
 
 from .helpers import create_relevant_analysis
+from tests._otp import force_login_verified
 
 
 class DeliveryAdminTests(TestCase):
@@ -23,7 +24,7 @@ class DeliveryAdminTests(TestCase):
             email="root-deliveries@example.test",
             password="test-password",
         )
-        self.client.force_login(self.user)
+        force_login_verified(self.client, self.user)
         self.analysis = create_relevant_analysis(external_id="admin-delivery-5001")
         self.target = DeliveryTarget.objects.create(
             target_type=DeliveryTargetType.CHANNEL,

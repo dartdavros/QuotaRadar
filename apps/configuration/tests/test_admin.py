@@ -2,10 +2,18 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
+from tests._otp import force_login_verified
+
 
 class AdminAvailabilityTests(TestCase):
-    def test_admin_login_page_is_available(self) -> None:
+    def test_admin_login_redirects_to_two_factor_flow(self) -> None:
         response = self.client.get(reverse("admin:login"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["location"], "/account/login/?next=/admin/")
+
+    def test_two_factor_login_page_is_available(self) -> None:
+        response = self.client.get("/account/login/")
 
         self.assertEqual(response.status_code, 200)
 
@@ -17,7 +25,7 @@ class SystemConfigurationAdminTests(TestCase):
             email="configuration-root@example.test",
             password="test-password",
         )
-        self.client.force_login(self.user)
+        force_login_verified(self.client, self.user)
 
     def test_poll_limits_are_editable(self) -> None:
         response = self.client.get(

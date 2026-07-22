@@ -171,6 +171,18 @@ Open:
 http://<backend-host>:8000/admin/
 ```
 
+The admin requires two-factor authentication. On first login, after entering the
+administrator username and password you will be prompted to set up a TOTP device:
+
+1. scan the displayed QR code with an authenticator app
+   (Google Authenticator, Aegis, 1Password, etc.);
+2. enter the generated one-time code to confirm enrollment;
+3. save the displayed backup tokens in a secure location — they are the only
+   way to regain access if the authenticator device is lost.
+
+Subsequent logins ask for the username, the password, and a fresh one-time code.
+Backup tokens can be regenerated from the two-factor profile page after login.
+
 ### 5. Configure runtime settings
 
 In Django Admin, open the QuotaRadar system configuration and set:

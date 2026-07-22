@@ -7,6 +7,7 @@ from apps.monitoring.models import (
     MonitoringEvent,
     MonitoringEventStatus,
 )
+from tests._otp import force_login_verified
 
 
 class MonitoringEventAdminTests(TestCase):
@@ -16,7 +17,7 @@ class MonitoringEventAdminTests(TestCase):
             email="root@example.test",
             password="test-password",
         )
-        self.client.force_login(self.user)
+        force_login_verified(self.client, self.user)
         self.event = MonitoringEvent.objects.create(
             component=MonitoringComponent.X,
             status=MonitoringEventStatus.SUCCESS,

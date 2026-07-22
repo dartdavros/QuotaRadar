@@ -38,13 +38,22 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 
+LOGIN_URL = "two_factor:login"
+LOGIN_REDIRECT_URL = "/admin/"
+OTP_TOTP_ISSUER = "QuotaRadar"
+
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    "quotaradar.apps.QuotaRadarAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_otp",
+    "django_otp.plugins.otp_totp",
+    "django_otp.plugins.otp_static",
+    "two_factor",
+    "formtools",
     "apps.configuration.apps.ConfigurationConfig",
     "apps.secrets.apps.SecretsConfig",
     "apps.sources.apps.SourcesConfig",
@@ -60,6 +69,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
