@@ -10,6 +10,8 @@ These cover the guarantees the OTP integration must keep:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
@@ -90,3 +92,22 @@ class TwoFactorLoginTemplateTests(TestCase):
         self.assertContains(response, 'id="login-form"')
         self.assertContains(response, "form-row")
         self.assertContains(response, "submit-row")
+
+    def test_login_stylesheet_targets_two_factor_fields(self) -> None:
+        """The custom stylesheet must cover the real two_factor field types.
+
+        Regression guard: an earlier version used a #content-main selector that
+        does not exist in the rendered DOM, so the rules silently did nothing.
+        admin/css/login.css only sizes #id_username/#id_password, which
+        two_factor does not use (it renders id_auth-username/password), so the
+        override must rely on input[type=...] selectors scoped to body.login.
+        """
+        from django.contrib.staticfiles import finders
+
+        css_path = finders.find("css/two_factor_login.css")
+        self.assertTrue(css_path, "css/two_factor_login.css not found by staticfiles")
+        css = Path(css_path).read_text(encoding="utf-8")
+        self.assertIn(".login", css)
+        self.assertIn('input[type="password"]', css)
+        self.assertIn("width: 100%", css)
+        self.assertNotIn("#content-main", css)

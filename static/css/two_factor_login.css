@@ -1,32 +1,29 @@
 /* Login form overrides for the two_factor wizard pages.
-   Scope to #content-main (the wrapper used by our _base_focus.html override)
-   so the rules only affect the two_factor login/setup/backup pages, never the
-   rest of the Django admin. */
+   Scope to body.login (applied by _base_focus.html) so the rules only affect
+   the two_factor login/setup/backup pages, never the rest of the admin.
 
-#content-main .form-row label {
-  display: block;
-  margin-bottom: 4px;
-}
+   admin/css/login.css only makes #id_username/#id_password full-width, but
+   two_factor uses id_auth-username/id_auth-password, so without these rules the
+   fields stay at their default narrow width. */
 
-#content-main .form-row input[type="text"],
-#content-main .form-row input[type="password"],
-#content-main .form-row input[type="tel"],
-#content-main .form-row input[type="number"],
-#content-main .form-row input[type="email"],
-#content-main .form-row select {
+.login .form-row input[type="text"],
+.login .form-row input[type="password"],
+.login .form-row input[type="tel"],
+.login .form-row input[type="number"],
+.login .form-row input[type="email"],
+.login .form-row select {
   width: 100%;
   box-sizing: border-box;
   padding: 12px;
 }
 
 /* Full-width, taller submit button. */
-#content-main .submit-row {
+.login .submit-row {
   padding: 12px 0 0;
-  display: flex;
 }
 
-#content-main .submit-row input[type="submit"],
-#content-main .submit-row button.default {
+.login .submit-row input[type="submit"],
+.login .submit-row button.default {
   width: 100%;
   padding: 14px;
   margin: 0;
