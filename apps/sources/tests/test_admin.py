@@ -74,6 +74,8 @@ class SourceAdminTests(TestCase):
         self.assertContains(response, "Выключить выбранные источники")
         self.assertContains(response, "Подтянуть старые посты выбранных источников")
         self.assertContains(response, ACTION_CHECKBOX_NAME)
+        self.assertNotContains(response, 'name="form-0-enabled"')
+        self.assertNotContains(response, 'name="_save"')
 
     def test_bulk_action_enables_selected_sources(self) -> None:
         source = Source.objects.get(username="OpenAIDevs")

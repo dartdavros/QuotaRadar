@@ -26,7 +26,6 @@ class SourceAdmin(admin.ModelAdmin):
         "last_success_at",
         "has_error",
     )
-    list_editable = ("enabled",)
     list_filter = ("provider", "enabled")
     search_fields = ("username", "x_user_id", "last_post_id")
     actions = (

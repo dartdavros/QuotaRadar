@@ -1,44 +1,44 @@
-# Политика безопасности
+# Security Policy
 
-## Поддерживаемые версии
+## Supported versions
 
-До появления следующего стабильного релиза исправления безопасности выпускаются для текущей ветки `0.1.x`.
+Until the next stable release is available, security fixes are provided for the current `0.1.x` branch.
 
-## Сообщение об уязвимости
+## Reporting a vulnerability
 
-Не публикуйте сведения об уязвимости в открытом issue.
+Do not disclose vulnerability details in a public issue.
 
-Предпочтительный канал — private vulnerability reporting / Security Advisory в GitHub-репозитории. В сообщении укажите:
+Use private vulnerability reporting or a Security Advisory in the GitHub repository. Include:
 
-- затронутую версию или commit;
-- сценарий эксплуатации;
-- предполагаемое влияние;
-- минимальные шаги воспроизведения;
-- возможное исправление, если оно известно.
+- the affected version or commit;
+- the exploitation scenario;
+- the expected impact;
+- minimal reproduction steps;
+- a possible fix, when known.
 
-До публикации исправления не раскрывайте токены, API-ключи, master key, proxy credentials, дампы базы и персональные Telegram chat ID.
+Do not disclose tokens, API keys, the master key, proxy credentials, database dumps, or personal Telegram chat IDs before a fix is published.
 
-## Критические секреты
+## Critical secrets
 
-Следующие данные нельзя коммитить, прикладывать к issue или включать в логи:
+The following data must never be committed, attached to an issue, or included in logs:
 
 - `.env`;
 - `docker/secrets/master.key`;
 - `telegram_bot_token`;
 - `x_bearer_token`;
 - `llm_api_key`;
-- `proxy_url` с credentials;
-- дампы PostgreSQL;
-- резервные копии master key.
+- `proxy_url` containing credentials;
+- PostgreSQL dumps;
+- master key backups.
 
-Потеря master key не восстанавливается из PostgreSQL. Компрометация master key вместе с дампом базы раскрывает сохранённые секреты. Реальный key должен быть исключён одновременно из Git и Docker build context.
+The master key cannot be recovered from PostgreSQL. Compromise of both the master key and a database dump exposes the stored secrets. The real key must be excluded from both Git and the Docker build context.
 
-## Развёртывание Django Admin
+## Django Admin deployment
 
-Порт `8000` может быть опубликован на backend-хосте. Оператор обязан ограничить доступ firewall/VPN либо разместить перед приложением корректно настроенный HTTPS reverse proxy.
+Port `8000` may be published on the backend host. Operators must restrict access with a firewall or VPN, or place a correctly configured HTTPS reverse proxy in front of the application.
 
-QuotaRadar `0.1.0` не включает Nginx, TLS termination, rate limiting и автоматическую выдачу сертификатов.
+QuotaRadar `0.1.0` does not include Nginx, TLS termination, rate limiting, or automated certificate issuance.
 
-## Внешние зависимости
+## External dependencies
 
-Все внешние запросы X, LLM и Telegram должны выполняться через общий proxy factory. Любая новая интеграция, создающая прямой HTTP-клиент, считается нарушением security boundary.
+All X, LLM, and Telegram requests must use the shared proxy-aware HTTP client factory. Any integration that creates a direct external HTTP client violates the security boundary.
