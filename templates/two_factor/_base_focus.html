@@ -2,7 +2,9 @@
 {% load static %}
 
 {% block bodyclass %}{{ block.super }} login{% endblock %}
-{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static "admin/css/login.css" %}">{% endblock %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static "admin/css/login.css" %}"><link rel="stylesheet" href="{% static "css/two_factor_login.css" %}">{% endblock %}
+
+{% block nav-breadcrumbs %}{% endblock %}
 
 {% block content_wrapper %}
   <div id="content-main">{% block content %}{% endblock %}</div>

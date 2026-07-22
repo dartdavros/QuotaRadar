@@ -11,3 +11,5 @@ class QuotaRadarAdminSite(AdminSiteOTPRequired):
     admin autodiscovery populates this same instance, so the existing
     ``@admin.register(Model)`` calls keep working unchanged.
     """
+
+    site_header = "Quota Radar"

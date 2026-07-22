@@ -7,11 +7,9 @@
 {% endblock %}
 
 {% block content %}
-  <h1>{% block title %}{% trans "Login" %}{% endblock %}</h1>
+  <h1>{% block title %}Авторизация{% endblock %}</h1>
 
-  {% if wizard.steps.current == 'auth' %}
-    <p>{% blocktrans %}Enter your credentials.{% endblocktrans %}</p>
-  {% elif wizard.steps.current == 'token' %}
+  {% if wizard.steps.current == 'token' %}
     <p>{{ device|as_verbose_action }}</p>
   {% elif wizard.steps.current == 'backup' %}
     <p>{% blocktrans trimmed %}Use this form for entering backup tokens for logging in.
