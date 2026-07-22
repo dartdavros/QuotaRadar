@@ -1,0 +1,9 @@
+{% extends "two_factor/_base.html" %}
+{% load static %}
+
+{% block bodyclass %}{{ block.super }} login{% endblock %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static "admin/css/login.css" %}">{% endblock %}
+
+{% block content_wrapper %}
+  <div id="content-main">{% block content %}{% endblock %}</div>
+{% endblock %}

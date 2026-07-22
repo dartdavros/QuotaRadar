@@ -64,3 +64,29 @@ class TwoFactorLoginFlowTests(TestCase):
         response = self.client.get(reverse("two_factor:setup"))
 
         self.assertEqual(response.status_code, 200)
+
+
+class TwoFactorLoginTemplateTests(TestCase):
+    """The two-factor login page must render with the Django admin design, not
+    the package's Bootstrap CDN template."""
+
+    def test_login_page_does_not_load_bootstrap_or_reminder(self) -> None:
+        response = self.client.get(reverse("two_factor:login"))
+
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode("utf-8")
+        self.assertNotIn("cdnjs.cloudflare.com", body)
+        self.assertNotIn("Provide a template named", body)
+
+    def test_login_page_uses_admin_login_stylesheet(self) -> None:
+        response = self.client.get(reverse("two_factor:login"))
+
+        self.assertContains(response, "admin/css/login.css")
+        self.assertContains(response, "admin/css/base.css")
+
+    def test_login_page_renders_admin_form_markup(self) -> None:
+        response = self.client.get(reverse("two_factor:login"))
+
+        self.assertContains(response, 'id="login-form"')
+        self.assertContains(response, "form-row")
+        self.assertContains(response, "submit-row")

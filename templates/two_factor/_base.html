@@ -1,0 +1,6 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{# Bridge two_factor's `extra_media` block (used for {{ form.media }}) into the
+   admin head, since admin/base.html has no extra_media block of its own. #}
+{% block extrahead %}{{ block.super }}{% block extra_media %}{% endblock %}{% endblock %}

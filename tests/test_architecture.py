@@ -210,3 +210,22 @@ class TwoFactorGuardTests(SimpleTestCase):
             "formtools",
         }
         self.assertTrue(required_apps.issubset(set(settings.INSTALLED_APPS)))
+
+    def test_two_factor_base_template_uses_admin_design(self) -> None:
+        """Project override of two_factor/_base.html must keep the Django admin
+        design instead of falling back to the package's Bootstrap CDN template.
+
+        Guards against the reminder/banner ("Provide a template named
+        two_factor/_base.html...") reappearing if the override is removed.
+        """
+        from django.template.loader import get_template
+
+        template = get_template("two_factor/_base.html")
+        origin = template.origin.template_name
+        self.assertEqual(origin, "two_factor/_base.html")
+        source = template.origin.template_source if hasattr(
+            template.origin, "template_source"
+        ) else Path(template.origin.name).read_text(encoding="utf-8")
+        self.assertIn("admin/base_site.html", source)
+        self.assertNotIn("cdnjs.cloudflare.com", source)
+        self.assertNotIn("Provide a template named", source)
