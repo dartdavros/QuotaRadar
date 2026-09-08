@@ -6,7 +6,7 @@ from .cache import cleanup_sent, ensure_uploads
 from .locks import publication_lock
 from .models import NewsConfiguration, NewsDelivery, NewsPublication
 from .payload import publication_hash, publication_expired, publication_allowed
-from .scheduling import reserve_day
+from .scheduling import fill_ready, reserve_day
 from .transport import NewsTransport, DeliveryRejected, DeliveryRateLimited, RemoteMediaRejected
 
 
@@ -26,6 +26,8 @@ def deliver_locked(publication_id):
     if publication_expired(initial, timezone.now()):
         NewsPublication.objects.filter(pk=publication_id, status="ready").update(status="blocked", last_error="Новость устарела.")
         return
+    if initial.initial_fill_id and not fill_ready(initial, timezone.now()):
+        return  # Wait for the previous historical post and for the pause between them.
     try:
         with NewsTransport() as transport:
             if initial.upload_media and not prepare_uploads(initial, transport.bot_identity):
@@ -43,6 +45,8 @@ def deliver_locked(publication_id):
                 if publication_expired(publication, now) or publication_hash(publication) != initial.payload_hash:
                     publication.status, publication.last_error = "blocked", "Новость устарела или изменена."
                     publication.save()
+                    return
+                if publication.initial_fill_id and not fill_ready(publication, now):
                     return
                 if not reserve_day(publication, config, now):
                     return

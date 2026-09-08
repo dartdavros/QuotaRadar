@@ -45,7 +45,7 @@ def prepare(publication_id, config):
                 "publication_time": now.isoformat(), "historical": bool(publication.initial_fill_id)})
         if not verification.supported or (publication.initial_fill_id and not verification.still_relevant):
             raise NewsPolicyError("Проверка фактов отклонила текст.")
-        rendered = render(writing, posts, config)
+        rendered = render(writing, posts)
         preserve(publication, posts)
         payload_hash = publication_hash(publication, rendered)
         NewsPublication.objects.filter(pk=publication_id, status="preparing", attempts=attempt).update(

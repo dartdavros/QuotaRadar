@@ -129,11 +129,14 @@ class NewsPolicyTests(TestCase):
 
     def test_render_escapes_text_and_uses_only_real_source_links(self):
         post = self.post()
-        text = render(WritingPayload(title="Codex <обновился>", text="Проверка кода & изменения."), [post], self.config)
+        text = render(WritingPayload(title="Codex <обновился>", text="Проверка кода & изменения."), [post])
         self.assertIn("&lt;обновился&gt;", text)
         self.assertIn(post.source_url, text)
+        # Only the original source is credited; the publication carries no date line.
+        self.assertNotIn(post.published_at.strftime("%Y"), text)
+        self.assertTrue(text.rstrip().endswith("</a>"))
         with self.assertRaises(ValueError):
-            render(WritingPayload(title="Обновление Codex", text="Подробнее https://invented.example"), [post], self.config)
+            render(WritingPayload(title="Обновление Codex", text="Подробнее https://invented.example"), [post])
 
     def test_resolution_requires_operator_note_and_message_ids(self):
         publication = NewsPublication.objects.create(event=self.event(1), target=self.target, status="uncertain")

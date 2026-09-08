@@ -34,8 +34,8 @@ def advance(run_id, config):
         register_archive(run)
         if run.status == "archive":
             if not pending_assessments(run):
-                # Only three genuinely different products justify skipping the paid history read.
-                run.status = "assessing" if len(products(run, config)) >= 3 else "collecting"
+                # Only an archive that already fills the whole run justifies skipping the paid read.
+                run.status = "assessing" if len(products(run)) >= FILL_LIMIT else "collecting"
                 run.save(update_fields=("status",))
         elif run.status == "collecting":
             read_page(run, config)
@@ -45,7 +45,7 @@ def advance(run_id, config):
             if not run.publications.exclude(status__in=("sent", "blocked")).exists():
                 # A text rejected by fact-checking gives its slot back instead of shrinking the fill.
                 free = FILL_LIMIT-run.publications.exclude(status="blocked").count()
-                run.status = "assessing" if free > 0 and candidates(run, config).exists() else "completed"
+                run.status = "assessing" if free > 0 and candidates(run).exists() else "completed"
                 run.save(update_fields=("status",))
     finally:
         InitialFill.objects.filter(pk=run_id, lease_until=run.lease_until).update(lease_until=None)

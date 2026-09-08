@@ -9,7 +9,10 @@ from .models import (InitialFill, InitialFillSource, InitialFillAssessment, News
                      NewsConfiguration, NewsEvent, NewsPublication)
 
 ACTIVE_FILL = ("archive", "collecting", "assessing", "publishing")
-FILL_LIMIT = 3  # The one-time fill has its own cap and neither reads nor consumes the daily quota.
+# Seeding a new channel: its own cap, window and threshold, unrelated to the daily quota.
+FILL_LIMIT = 20
+FILL_WINDOW_DAYS = 4
+FILL_MIN_SCORE = 50
 
 def enabled(config):
     return (settings.QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED and config.collection_enabled
@@ -27,7 +30,7 @@ def start_fill():
         raise NewsPolicyError("Наполнение этого канала уже запускалось; перезапуск не создаёт новый бюджет.")
     now = timezone.now()
     run = InitialFill.objects.create(target=config.target, status="archive",
-        window_start=now-timedelta(days=3), window_end=now-timedelta(seconds=15), expires_at=now+timedelta(hours=24))
+        window_start=now-timedelta(days=FILL_WINDOW_DAYS), window_end=now-timedelta(seconds=15), expires_at=now+timedelta(hours=24))
     subscriptions = SourceSubscription.objects.filter(feed=Feed.NEWS, enabled=True, source__enabled=True)
     if not subscriptions.exists():
         raise NewsPolicyError("Нет включённых новостных источников.")
@@ -44,23 +47,22 @@ def register_archive(run):
         assessment, _ = NewsAssessment.objects.get_or_create(post=post)
         InitialFillAssessment.objects.get_or_create(run=run, assessment=assessment)
 
-def candidates(run, config):
+def candidates(run):
     assessment_posts = run.assessments.values_list("assessment__post_id", flat=True)
-    return NewsEvent.objects.filter(evidence__post_id__in=assessment_posts, score__gte=config.min_score).exclude(
+    return NewsEvent.objects.filter(evidence__post_id__in=assessment_posts, score__gte=FILL_MIN_SCORE).exclude(
         event_type="incident").exclude(publications__target_id=run.target_id).distinct()
 
-def products(run, config):
-    """Distinct products among candidates; three near-identical events are not three news items."""
-    return {name.strip().casefold() for name in candidates(run, config).values_list("product", flat=True)}
+def products(run):
+    """Distinct products among candidates; repeated takes on one product are one news item."""
+    return {name.strip().casefold() for name in candidates(run).values_list("product", flat=True)}
 
-def rank(run, config, limit):
-    """Best first, but every product gets a turn before any product repeats."""
-    seen, primary, extra = set(), [], []
-    for event in candidates(run, config).order_by("-score", "-urgent", "-last_seen_at"):
-        key = event.product.strip().casefold()
-        (extra if key in seen else primary).append(event)
-        seen.add(key)
-    return (primary+extra)[:limit]
+def rank(run, limit):
+    """One best event per product, then oldest first so the channel reads like a real timeline."""
+    best = {}
+    for event in candidates(run).order_by("-score", "-urgent", "-last_seen_at"):
+        best.setdefault(event.product.strip().casefold(), event)
+    chosen = sorted(best.values(), key=lambda event: (-event.score, event.first_seen_at))[:limit]
+    return sorted(chosen, key=lambda event: event.first_seen_at)
 
 def pending_assessments(run):
     return run.assessments.filter(assessment__status__in=("pending", "running"),
@@ -77,7 +79,7 @@ def select_initial(run_id):
         return
     remaining = FILL_LIMIT-run.publications.exclude(status="blocked").count()
     selected = 0
-    for event in rank(run, config, max(remaining, 0)):
+    for event in rank(run, max(remaining, 0)):
         # slot_date stays empty: history goes out at once and never occupies a regular publication slot.
         NewsPublication.objects.create(event=event, target_id=run.target_id, initial_fill=run, urgent=False)
         selected += 1

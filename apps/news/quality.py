@@ -1,7 +1,6 @@
 """Deterministic evidence checks and publication rendering."""
 from html import escape
 import re
-from zoneinfo import ZoneInfo
 
 from .schemas import AssessmentPayload, WritingPayload
 from .errors import NewsPolicyError
@@ -20,17 +19,16 @@ def validate_assessment(payload: AssessmentPayload, post):
         raise NewsPolicyError("Срочность разрешена только подтверждённому крупному запуску.")
 
 
-def render(writing: WritingPayload, posts, config):
+def render(writing: WritingPayload, posts):
     for value in (writing.title, writing.text):
         if not re.search("[А-Яа-яЁё]", value):
             raise NewsPolicyError("Новость должна быть на русском языке.")
         if re.search(r"https?://|www\.", value):
             raise NewsPolicyError("Ссылки добавляются из источников, не из ответа ИИ.")
-    date = min(p.published_at for p in posts).astimezone(ZoneInfo(config.timezone)).strftime("%d.%m.%Y")
     links = " · ".join(f'<a href="{escape(p.source_url, quote=True)}">@{escape(p.source.username)}</a>' for p in posts)
-    text = f"<b>{escape(writing.title)}</b>\n\n{escape(writing.text)}\n\n{date} · {links}"
+    text = f"<b>{escape(writing.title)}</b>\n\n{escape(writing.text)}\n\n{links}"
     # Telegram counts UTF-16 text units after entity parsing.
-    visible = f"{writing.title}\n\n{writing.text}\n\n{date} · " + " · ".join("@"+p.source.username for p in posts)
+    visible = f"{writing.title}\n\n{writing.text}\n\n" + " · ".join("@"+p.source.username for p in posts)
     if len(visible.encode("utf-16-le")) // 2 > 1024:
         raise NewsPolicyError("Подпись с источниками превышает лимит Telegram.")
     return text

@@ -22,7 +22,7 @@ class NewsConfigurationAdmin(admin.ModelAdmin):
     readonly_fields = ("activated_at",)
     actions = ("initial_fill",)
 
-    @admin.action(description="Первично наполнить канал: 3 дня, X до $2", permissions=["change"])
+    @admin.action(description="Первично наполнить канал: 4 суток, X до $2", permissions=["change"])
     def initial_fill(self, request, queryset):
         if queryset.count() != 1:
             self.message_user(request, "Выберите одну запись настроек.", messages.ERROR)
