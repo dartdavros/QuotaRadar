@@ -11,11 +11,12 @@ class DeliveryTargetAdmin(admin.ModelAdmin):
     list_display = (
         "telegram_chat_id",
         "target_type",
+        "feed",
         "enabled",
         "created_at",
         "updated_at",
     )
-    list_filter = ("target_type", "enabled")
+    list_filter = ("target_type", "feed", "enabled")
     search_fields = ("telegram_chat_id",)
     readonly_fields = ("created_at", "updated_at")
     ordering = ("target_type", "telegram_chat_id")

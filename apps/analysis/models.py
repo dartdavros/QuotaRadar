@@ -43,7 +43,7 @@ class Analysis(models.Model):
     provider = models.CharField(
         "Провайдер",
         max_length=32,
-        choices=SourceProvider.choices,
+        choices=[(p.value, p.label) for p in (SourceProvider.OPENAI, SourceProvider.ANTHROPIC)],
     )
     product = models.CharField(
         "Продукт",

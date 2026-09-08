@@ -8,6 +8,7 @@ from celery import Task, shared_task
 
 from apps.configuration.models import SystemConfiguration
 from apps.sources.models import Source, SourcePostProcessingStatus
+from apps.sources.routing import accepts_quota
 
 from .backfill import BackfillUnavailableError, ingest_source_history
 from .dispatch import enqueue_posts_for_analysis
@@ -39,6 +40,8 @@ def backfill_source(self: Task, source_id: int) -> dict[str, int | str]:
     except Source.DoesNotExist:
         return {"status": "missing", "source_id": source_id}
 
+    if not accepts_quota(source.pk):
+        return {"status": "disabled", "source_id": source_id}
     task_id = _task_id(self)
     configuration = SystemConfiguration.load()
     with source_poll_lock(source_id) as acquired:

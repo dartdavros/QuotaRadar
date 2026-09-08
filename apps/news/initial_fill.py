@@ -1,0 +1,77 @@
+"""Explicit one-time real-channel fill; no process-start or local auto-bootstrap."""
+from datetime import timedelta
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+from apps.sources.models import Feed, SourcePost, SourceSubscription
+from .errors import NewsPolicyError
+from .models import (InitialFill, InitialFillSource, InitialFillAssessment, NewsAssessment,
+                     NewsConfiguration, NewsEvent, NewsPublication)
+from .scheduling import reserve_day
+
+ACTIVE_FILL = ("archive", "collecting", "assessing", "publishing")
+
+def enabled(config):
+    return (settings.QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED and config.collection_enabled
+            and config.analysis_enabled and config.publishing_enabled)
+
+@transaction.atomic
+def start_fill():
+    if not settings.QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED:
+        raise NewsPolicyError("Первичное наполнение разрешается только на рабочем сервере; здесь оно выключено.")
+    config = NewsConfiguration.objects.select_for_update(of=("self",)).select_related("target").get(pk=1)
+    config.full_clean()
+    if not enabled(config) or not config.target:
+        raise NewsPolicyError("Сначала настройте канал и включите все три переключателя новостей.")
+    if InitialFill.objects.filter(target=config.target).exists():
+        raise NewsPolicyError("Наполнение этого канала уже запускалось; перезапуск не создаёт новый бюджет.")
+    now = timezone.now()
+    run = InitialFill.objects.create(target=config.target, status="archive",
+        window_start=now-timedelta(days=3), window_end=now-timedelta(seconds=15), expires_at=now+timedelta(hours=24))
+    subscriptions = SourceSubscription.objects.filter(feed=Feed.NEWS, enabled=True, source__enabled=True)
+    if not subscriptions.exists():
+        raise NewsPolicyError("Нет включённых новостных источников.")
+    InitialFillSource.objects.bulk_create([
+        InitialFillSource(run=run, subscription=sub, query_terms=sub.query_terms) for sub in subscriptions])
+    register_archive(run)
+    return run
+
+def register_archive(run):
+    sources = run.sources.values_list("subscription__source_id", flat=True)
+    posts = SourcePost.objects.filter(source_id__in=sources,
+        published_at__gte=run.window_start, published_at__lte=run.window_end)
+    for post in posts.iterator(chunk_size=200):
+        assessment, _ = NewsAssessment.objects.get_or_create(post=post)
+        InitialFillAssessment.objects.get_or_create(run=run, assessment=assessment)
+
+def candidates(run, config):
+    assessment_posts = run.assessments.values_list("assessment__post_id", flat=True)
+    return NewsEvent.objects.filter(evidence__post_id__in=assessment_posts, score__gte=config.min_score).exclude(
+        event_type="incident").exclude(publications__target_id=run.target_id).distinct()
+
+def pending_assessments(run):
+    return run.assessments.filter(assessment__status__in=("pending", "running"),
+        assessment__post__source__enabled=True, assessment__post__source__subscriptions__feed=Feed.NEWS,
+        assessment__post__source__subscriptions__enabled=True).exists()
+
+@transaction.atomic
+def select_initial(run_id):
+    config = NewsConfiguration.objects.select_for_update(of=("self",)).select_related("target").get(pk=1)
+    run = InitialFill.objects.select_for_update().get(pk=run_id)
+    if not enabled(config) or config.target_id != run.target_id or run.expires_at <= timezone.now():
+        return
+    if run.status != "assessing" or pending_assessments(run):
+        return
+    remaining = min(config.daily_limit, 3)-run.publications.count()
+    events = candidates(run, config).order_by("-score", "-urgent", "-last_seen_at")[:max(remaining, 0)]
+    selected = 0
+    for event in events:
+        publication = NewsPublication(event=event, target_id=run.target_id, initial_fill=run, urgent=False)
+        if not reserve_day(publication, config):
+            return  # Preserve assessing state and wait for the next day, within the run deadline.
+        publication.save()
+        selected += 1
+    run.status = "publishing" if selected or run.publications.exists() else "completed"
+    if run.status == "completed":
+        run.last_error = "В пределах окна и бюджета не найдено подходящих новых событий."
+    run.save(update_fields=("status", "last_error"))

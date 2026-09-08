@@ -103,6 +103,29 @@ class SafeHttpClient:
     def post(self, url: str, **kwargs: Any) -> httpx.Response:
         return self.request("POST", url, **kwargs)
 
+    def download_to(self, url, destination, *, max_bytes, max_seconds):
+        """Bound memory, transferred bytes, total time and redirects for media."""
+        from time import monotonic
+        started = monotonic()
+        try:
+            with self._client.stream("GET", url, follow_redirects=False) as response:
+                if response.status_code != 200:
+                    raise ExternalHttpRequestError("Media download rejected; redirects are not followed.")
+                length = response.headers.get("content-length")
+                if length and (not length.isdigit() or int(length) > max_bytes):
+                    raise ExternalHttpRequestError("Media exceeds the download limit.")
+                received = 0
+                for chunk in response.iter_bytes(chunk_size=65536):
+                    received += len(chunk)
+                    if received > max_bytes or monotonic() - started > max_seconds:
+                        raise ExternalHttpRequestError("Media exceeds the download limit.")
+                    destination.write(chunk)
+                if not received:
+                    raise ExternalHttpRequestError("Empty media.")
+                return response.headers.get("content-type", "").split(";")[0].strip().lower()
+        except httpx.HTTPError:
+            raise ExternalHttpRequestError("Media download failed.") from None
+
     def head(self, url: str, **kwargs: Any) -> httpx.Response:
         return self.request("HEAD", url, **kwargs)
 

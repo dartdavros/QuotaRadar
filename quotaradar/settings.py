@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "apps.monitoring.apps.MonitoringConfig",
     "apps.analysis.apps.AnalysisConfig",
     "apps.telegram.apps.TelegramConfig",
+    "apps.news.apps.NewsConfig",
 ]
 
 MIDDLEWARE = [
@@ -116,6 +117,10 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
+from tempfile import gettempdir
+MEDIA_ROOT = os.environ.get("QUOTARADAR_NEWS_MEDIA_ROOT") or str(Path(gettempdir()) / "quotaradar-news-cache")
+QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED = os.environ.get("QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED", "false").lower() == "true"
+
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
@@ -142,6 +147,15 @@ CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 CELERY_TASK_ACKS_LATE = True
 CELERY_TASK_REJECT_ON_WORKER_LOST = True
 CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_ROUTES = {
+    "news.tick": {"queue": "news.urgent"},
+    "news.collect": {"queue": "news.urgent"},
+    "news.assess": {"queue": "news.urgent"},
+    "news.prepare": {"queue": "news.default"},
+    "news.send": {"queue": "news.default"},
+    "news.fill": {"queue": "news.default"},
+    "news.cleanup_media": {"queue": "news.default"},
+}
 CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 3600}
 
 QUOTARADAR_ANALYSIS_STALE_SECONDS = 1800
@@ -150,6 +164,9 @@ QUOTARADAR_RECOVERY_INTERVAL_SECONDS = 300
 
 CELERY_BEAT_MAX_LOOP_INTERVAL = 5.0
 CELERY_BEAT_SCHEDULE: dict[str, object] = {
+    "news-tick": {"task": "news.tick", "schedule": 20.0},
+    "news-cleanup-default": {"task": "news.cleanup_media", "schedule": 300.0, "options": {"queue": "news.default"}},
+    "news-cleanup-urgent": {"task": "news.cleanup_media", "schedule": 300.0, "options": {"queue": "news.urgent"}},
     "poll-sources": {
         "task": "monitoring.poll_sources",
         "schedule": DatabasePollingSchedule(),

@@ -39,3 +39,6 @@ dist/
 
 # Archives
 *.zip
+
+# Local administrator credentials (owner requested)
+docs/LOCAL-ADMIN.private.md

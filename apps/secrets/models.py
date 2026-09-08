@@ -8,6 +8,7 @@ from django.db import models
 
 class SecretCode(models.TextChoices):
     TELEGRAM_BOT_TOKEN = "telegram_bot_token", "Telegram Bot Token"
+    NEWS_TELEGRAM_BOT_TOKEN = "news_telegram_bot_token", "Telegram Bot Token — новости"
     LLM_API_KEY = "llm_api_key", "Ключ API ИИ-провайдера"
     X_BEARER_TOKEN = "x_bearer_token", "X Bearer Token"
     PROXY_URL = "proxy_url", "URL прокси"

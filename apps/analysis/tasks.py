@@ -11,6 +11,7 @@ from apps.configuration.models import SystemConfiguration
 from apps.monitoring.events import record_monitoring_event
 from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
 from apps.sources.models import SourcePost, SourcePostProcessingStatus
+from apps.sources.routing import accepts_quota
 from apps.telegram.services import queue_analysis_deliveries
 
 from .llm import (
@@ -45,6 +46,9 @@ def analyze_post(self: Task, source_post_id: int) -> dict[str, int | str | bool]
         source_post = SourcePost.objects.select_related("source").get(pk=source_post_id)
     except SourcePost.DoesNotExist:
         return {"status": "missing", "source_post_id": source_post_id}
+
+    if not accepts_quota(source_post.source_id):
+        return {"status": "disabled", "source_post_id": source_post_id}
 
     context = {
         "event": "analysis.started",

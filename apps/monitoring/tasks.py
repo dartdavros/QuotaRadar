@@ -8,6 +8,7 @@ from celery import Task, shared_task
 
 from apps.configuration.models import SystemConfiguration
 from apps.sources.models import Source
+from apps.sources.routing import quota_sources, accepts_quota
 
 from .backfill_tasks import backfill_source as backfill_source
 from .dispatch import enqueue_pending_posts
@@ -53,7 +54,7 @@ def poll_sources(self: Task) -> dict[str, int | str]:
         )
         return {"status": "disabled", "queued": 0}
 
-    sources = list(Source.objects.filter(enabled=True).order_by("pk"))
+    sources = list(quota_sources(Source.objects.filter(enabled=True)).order_by("pk"))
     if not sources:
         return {"status": "ok", "queued": 0}
 
@@ -136,7 +137,7 @@ def poll_source(self: Task, source_id: int) -> dict[str, int | str]:
         source = Source.objects.get(pk=source_id)
     except Source.DoesNotExist:
         return {"status": "missing", "source_id": source_id}
-    if not source.enabled:
+    if not source.enabled or not accepts_quota(source.pk):
         return {"status": "disabled", "source_id": source_id}
 
     context = {
@@ -285,7 +286,6 @@ def recover_orphaned_work(self: Task) -> dict[str, int | str]:
         "analysis_dispatch_errors": result.analysis_dispatch_errors,
         "delivery_dispatch_errors": result.delivery_dispatch_errors,
     }
-
 
 _PERMANENT_X_ERRORS = (
     XApiConfigurationError,

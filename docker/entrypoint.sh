@@ -29,6 +29,16 @@ case "${1:-}" in
         run_checks
         exec celery -A quotaradar worker --loglevel=INFO
         ;;
+    news-worker)
+        run_checks
+        exec celery -A quotaradar worker --loglevel=INFO \
+            --queues=news.default --concurrency=2 --prefetch-multiplier=1 --hostname=news-default@%h
+        ;;
+    news-urgent)
+        run_checks
+        exec celery -A quotaradar worker --loglevel=INFO \
+            --queues=news.urgent --concurrency=2 --prefetch-multiplier=1 --hostname=news-urgent@%h
+        ;;
     beat)
         run_checks
         exec celery -A quotaradar beat \

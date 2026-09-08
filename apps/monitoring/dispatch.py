@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from apps.analysis.tasks import analyze_post
 from apps.sources.models import Source, SourcePost, SourcePostProcessingStatus
+from apps.sources.routing import accepts_quota
 
 from .events import record_monitoring_event
 from .models import MonitoringComponent, MonitoringEventStatus
@@ -63,6 +64,9 @@ def enqueue_posts_for_analysis(
     dispatch_failed = 0
 
     for post in candidates:
+        if not accepts_quota(post.source_id):
+            skipped += 1
+            continue
         previous_status = post.processing_status
         previous_started_at = post.processing_started_at
         previous_error = post.last_error

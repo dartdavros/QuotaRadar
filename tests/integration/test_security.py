@@ -12,6 +12,7 @@ from apps.secrets.services import set_secret
 
 @skipUnless(connection.vendor == "postgresql", "PostgreSQL integration test")
 class PostgreSqlCiphertextTests(TransactionTestCase):
+    serialized_rollback = True
     reset_sequences = True
 
     def test_plaintext_is_absent_from_raw_database_column(self) -> None:

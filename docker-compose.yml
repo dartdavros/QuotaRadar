@@ -24,6 +24,8 @@ x-application: &application
     POSTGRES_PORT: "5432"
     REDIS_URL: redis://redis:6379/0
     QUOTARADAR_MASTER_KEY_FILE: /run/secrets/quota_radar_master_key
+    QUOTARADAR_NEWS_MEDIA_ROOT: ${QUOTARADAR_NEWS_MEDIA_ROOT:-}
+    QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED: ${QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED:-false}
   secrets:
     - source: quota_radar_master_key
       target: quota_radar_master_key
@@ -80,6 +82,16 @@ services:
   worker:
     <<: *application
     command: ["worker"]
+    depends_on: *runtime-dependencies
+
+  news-worker:
+    <<: *application
+    command: ["news-worker"]
+    depends_on: *runtime-dependencies
+
+  news-urgent:
+    <<: *application
+    command: ["news-urgent"]
     depends_on: *runtime-dependencies
 
   beat:

@@ -59,6 +59,7 @@ class _FakeXClient:
 
 @skipUnless(connection.vendor == "postgresql", "PostgreSQL integration test")
 class EndToEndPipelineTests(TransactionTestCase):
+    serialized_rollback = True
     reset_sequences = True
 
     def setUp(self) -> None:

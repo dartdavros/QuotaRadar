@@ -11,7 +11,8 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.analysis.models import Analysis
-from apps.sources.models import SourcePost, SourcePostProcessingStatus
+from apps.sources.models import Source, SourcePost, SourcePostProcessingStatus
+from apps.sources.routing import quota_sources
 from apps.telegram.models import Delivery, DeliveryStatus
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,7 @@ def _recover_analyses() -> tuple[int, int]:
     stale_ids = list(
         SourcePost.objects.filter(
             processing_status=SourcePostProcessingStatus.QUEUED,
+            source_id__in=quota_sources(Source.objects.all()).values("pk"),
         )
         .filter(
             Q(processing_started_at__isnull=True) | Q(processing_started_at__lte=cutoff)

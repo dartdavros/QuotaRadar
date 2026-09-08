@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -16,6 +15,11 @@ from apps.configuration.http_client import (
 from apps.secrets.crypto import SecretDecryptionError
 from apps.secrets.models import EncryptedSecret, SecretCode
 from apps.secrets.services import SecretNotConfiguredError, get_secret
+
+from .x_errors import (
+    XApiError, XApiConfigurationError, XApiAuthenticationError, XApiForbiddenError,
+    XApiNotFoundError, XApiResponseError, XApiTemporaryError, XApiRateLimitError,
+)
 
 X_API_BASE_URL = "https://api.x.com"
 _X_REQUEST_TIMEOUT_SECONDS = 30
@@ -43,49 +47,7 @@ _EXPANSIONS = ",".join(
         "attachments.media_keys",
     )
 )
-_MEDIA_FIELDS = "media_key,type,url,preview_image_url,alt_text"
-
-
-class XApiError(RuntimeError):
-    """Base class for sanitized X API failures."""
-
-
-class XApiConfigurationError(XApiError):
-    """Required credentials or proxy configuration are unavailable."""
-
-
-class XApiAuthenticationError(XApiError):
-    """The configured X bearer token was rejected."""
-
-
-class XApiForbiddenError(XApiError):
-    """The X application has insufficient access."""
-
-
-class XApiNotFoundError(XApiError):
-    """The requested X resource does not exist."""
-
-
-class XApiResponseError(XApiError):
-    """X returned a permanent or malformed response."""
-
-
-class XApiTemporaryError(XApiError):
-    """X or the proxy failed temporarily."""
-
-
-class XApiRateLimitError(XApiTemporaryError):
-    """X rate limit response with a safe retry deadline."""
-
-    def __init__(self, reset_at: int | None) -> None:
-        super().__init__("X API rate limit exceeded.")
-        self.reset_at = reset_at
-
-    def retry_after_seconds(self, *, now: float | None = None) -> int:
-        current = int(now if now is not None else time.time())
-        if self.reset_at is None:
-            return 60
-        return max(self.reset_at - current + 1, 1)
+_MEDIA_FIELDS = "media_key,type,url,preview_image_url,alt_text,variants"
 
 
 @dataclass(frozen=True, slots=True)

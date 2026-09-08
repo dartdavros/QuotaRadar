@@ -14,7 +14,7 @@ from apps.sources.models import (
 class SourceModelTests(TestCase):
     def test_initial_trusted_sources_exist(self) -> None:
         self.assertEqual(
-            list(Source.objects.values_list("provider", "username", "enabled")),
+            list(Source.objects.filter(subscriptions__feed="quota").values_list("provider", "username", "enabled")),
             [
                 (SourceProvider.ANTHROPIC, "ClaudeDevs", True),
                 (SourceProvider.OPENAI, "OpenAIDevs", True),

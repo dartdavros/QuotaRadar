@@ -26,7 +26,7 @@ def page_from_fixture(name: str) -> XTimelinePage:
 
 class SourceResolutionTests(TestCase):
     def test_resolves_all_trusted_user_ids(self) -> None:
-        sources = list(Source.objects.order_by("pk"))
+        sources = list(Source.objects.filter(subscriptions__feed="quota").order_by("pk"))
         client = Mock()
         client.lookup_users.return_value = {
             "openaidevs": "1001",

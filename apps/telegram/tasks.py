@@ -8,6 +8,7 @@ from celery import Task, shared_task
 from django.utils import timezone
 
 from apps.configuration.models import SystemConfiguration
+from apps.sources.models import Feed
 from apps.monitoring.events import record_monitoring_event
 from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
 
@@ -93,7 +94,7 @@ def _deliver_locked(
         return _result("permanently_failed", delivery)
     if delivery.next_attempt_at and delivery.next_attempt_at > timezone.now():
         return _result("retry_scheduled", delivery)
-    if not delivery.target.enabled:
+    if not delivery.target.enabled or delivery.target.feed != Feed.QUOTA:
         mark_failed(delivery.pk, "Delivery target is disabled.")
         record_monitoring_event(
             component=MonitoringComponent.TELEGRAM,

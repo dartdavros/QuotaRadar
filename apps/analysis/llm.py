@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Self
 
-from pydantic import ValidationError as PydanticValidationError
+from pydantic import BaseModel, ValidationError as PydanticValidationError
 
 from apps.configuration.http_client import (
     ExternalHttpConfigurationError,
@@ -57,7 +57,7 @@ class LlmStructuredOutputError(LlmTemporaryError):
 
 @dataclass(frozen=True, slots=True)
 class LlmAnalysisResponse:
-    payload: AnalysisPayload
+    payload: BaseModel
     raw_response: dict[str, Any]
 
 
@@ -72,9 +72,11 @@ class OpenAICompatibleLlmClient:
         configuration: SystemConfiguration,
         http_client: SafeHttpClient | None = None,
         api_key: str | None = None,
+        response_model: type[BaseModel] = AnalysisPayload,
     ) -> None:
         _validate_configuration(configuration)
         self._configuration = configuration
+        self._response_model = response_model
         self._owns_http_client = http_client is None
         try:
             self._api_key = api_key or get_secret(SecretCode.LLM_API_KEY)
@@ -137,7 +139,7 @@ class OpenAICompatibleLlmClient:
 
         structured = _extract_structured_content(raw_response)
         try:
-            payload = AnalysisPayload.model_validate(structured)
+            payload = self._response_model.model_validate(structured)
         except PydanticValidationError:
             raise LlmStructuredOutputError(raw_response=raw_response) from None
         return LlmAnalysisResponse(payload=payload, raw_response=raw_response)
@@ -161,7 +163,8 @@ class OpenAICompatibleLlmClient:
                 "json_schema": {
                     "name": "quota_event_analysis",
                     "strict": True,
-                    "schema": structured_output_json_schema(),
+                    "schema": (structured_output_json_schema() if self._response_model is AnalysisPayload
+                               else self._response_model.model_json_schema()),
                 },
             },
         }

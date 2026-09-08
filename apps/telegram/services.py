@@ -11,6 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.analysis.models import Analysis
+from apps.sources.models import Feed
 from apps.configuration.models import SystemConfiguration
 from apps.monitoring.events import record_monitoring_event
 from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
@@ -108,7 +109,7 @@ def queue_analysis_deliveries(analysis_id: int) -> QueuedDeliveries:
         return QueuedDeliveries(analysis_id=analysis_id, delivery_ids=())
 
     queued_ids: list[int] = []
-    for target in DeliveryTarget.objects.filter(enabled=True).only("pk"):
+    for target in DeliveryTarget.objects.filter(enabled=True, feed=Feed.QUOTA).only("pk"):
         delivery, created = Delivery.objects.get_or_create(
             analysis=analysis,
             target=target,

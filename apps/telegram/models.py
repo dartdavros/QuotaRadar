@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from apps.analysis.models import Analysis
+from apps.sources.models import Feed
 
 _CHANNEL_USERNAME_PATTERN = re.compile(r"^@[A-Za-z0-9_]{5,32}$")
 _NUMERIC_CHAT_ID_PATTERN = re.compile(r"^-?[0-9]+$")
@@ -38,6 +39,7 @@ class DeliveryTarget(models.Model):
         unique=True,
     )
     enabled = models.BooleanField("Активен", default=True)
+    feed = models.CharField("Направление", max_length=16, choices=Feed.choices, default=Feed.QUOTA)
     created_at = models.DateTimeField("Создан", auto_now_add=True)
     updated_at = models.DateTimeField("Изменён", auto_now=True)
 
@@ -61,6 +63,8 @@ class DeliveryTarget(models.Model):
                 {"telegram_chat_id": "Telegram chat ID не должен быть пустым."}
             )
         if self.target_type == DeliveryTargetType.PRIVATE_CHAT:
+            if self.feed != Feed.QUOTA:
+                raise ValidationError({"feed": "Личные подписки доступны только для квот."})
             if not chat_id.isdigit():
                 raise ValidationError(
                     {
