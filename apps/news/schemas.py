@@ -27,8 +27,18 @@ class AssessmentPayload(StrictPayload):
 
 
 class WritingPayload(StrictPayload):
-    title: str = Field(min_length=1, max_length=160)
-    text: str = Field(min_length=1, max_length=750)
+    # The provider truncates at maxLength, so the bounds sit far above the editorial norm:
+    # a text that misses the norm has to be rewritten, never silently cut mid-word.
+    title: str = Field(min_length=1, max_length=300, description=(
+        "Заголовок новости на русском: одно законченное предложение длиной 40–90 символов. "
+        "Называет суть одним фактом, не пересказывает новость целиком и не перечисляет "
+        "подробности через запятую. Подробности идут в поле text, а не сюда."
+    ))
+    text: str = Field(min_length=1, max_length=1500, description=(
+        "Текст новости на русском: 400–750 символов, 2–3 коротких абзаца, разделённых пустой "
+        "строкой. Первое предложение не повторяет заголовок ни дословно, ни по смыслу. "
+        "Раскрывает практическую пользу для разработчика по фактам из источников."
+    ))
 
 
 class VerificationPayload(StrictPayload):

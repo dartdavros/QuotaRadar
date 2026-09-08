@@ -14,7 +14,7 @@ from apps.news.collection import register_posts
 from apps.news.editorial import save_event
 from apps.news.media import attachment_plan, validate_url
 from apps.news.models import NewsAssessment, NewsConfiguration, NewsDelivery, NewsEvent, NewsPublication, XBudgetPeriod
-from apps.news.quality import editorial, render, validate_assessment
+from apps.news.quality import TITLE_LIMIT, editorial, render, validate_assessment
 from apps.news.schemas import AssessmentPayload, Fact, WritingPayload
 from apps.news.scheduling import reserve_day, select_publication
 from apps.news.sending import resolve
@@ -126,6 +126,15 @@ class NewsPolicyTests(TestCase):
             facts=[Fact(text="Бесплатно.", evidence="Free for everyone")], related_event_id=None)
         with self.assertRaises(ValueError):
             validate_assessment(payload, self.post())
+
+    def test_writing_schema_leaves_room_to_reject_instead_of_truncating(self):
+        # The provider cuts at maxLength, so the schema must accept more than the editorial norm:
+        # an oversized title has to come back whole and be rewritten, never arrive cut mid-word.
+        title = "Заголовок"*((TITLE_LIMIT//9)+5)
+        payload = WritingPayload(title=title, text="Текст новости. "*40)
+        self.assertEqual(payload.title, title)
+        with self.assertRaises(ValueError):
+            editorial(payload)
 
     def test_editorial_floor_rejects_truncated_thin_and_repeating_texts(self):
         body = "Обновление добавляет разбор кода и заметно ускоряет проверку. " * 5
