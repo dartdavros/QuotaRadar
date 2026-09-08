@@ -8,11 +8,11 @@ from apps.telegram.models import DeliveryTarget
 from apps.news.budget import reserve, settle, BudgetExhausted
 from apps.news.errors import NewsPolicyError
 from apps.news.fill_collection import advance
-from apps.news.initial_fill import start_fill, register_archive, select_initial
-from apps.news.models import (InitialFill, NewsAssessment, NewsConfiguration, NewsEvent,
-                             NewsEventEvidence, NewsPublication, XBudgetPeriod)
+from apps.news.initial_fill import start_fill, register_archive, rank, select_initial
+from apps.news.models import (InitialFill, NewsAssessment, NewsConfiguration, NewsDailyQuota,
+                             NewsEvent, NewsEventEvidence, NewsPublication, XBudgetPeriod)
 from apps.news.payload import publication_expired, publication_allowed
-from apps.news.scheduling import select_publication, local_day
+from apps.news.scheduling import select_publication, local_day, reserve_day
 
 
 @override_settings(QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED=True)
@@ -26,13 +26,13 @@ class InitialFillTests(TestCase):
         self.config.collection_enabled = self.config.analysis_enabled = self.config.publishing_enabled = True
         self.config.save()
 
-    def evidence(self, number, days=2, score=90, kind="tool_release"):
+    def evidence(self, number, days=2, score=90, kind="tool_release", product="Codex"):
         date = self.now-timedelta(days=days)
         post = SourcePost.objects.create(source=self.source, external_id=str(number),
             text="Codex adds review.", normalized_text="Codex adds review.",
             source_url=f"https://x.com/OpenAIDevs/status/{number}", published_at=date, raw_data={})
         NewsAssessment.objects.create(post=post, status="done")
-        event = NewsEvent.objects.create(fingerprint=str(number), product="Codex", version=str(number),
+        event = NewsEvent.objects.create(fingerprint=str(number), product=product, version=str(number),
             event_type=kind, score=score, urgent=True, facts=[], first_seen_at=date, last_seen_at=date,
             expires_at=date+timedelta(hours=36))
         NewsEventEvidence.objects.create(event=event, post=post, facts=[])
@@ -59,9 +59,9 @@ class InitialFillTests(TestCase):
         with self.assertRaises(NewsPolicyError):
             start_fill()
 
-    def test_archive_with_three_candidates_skips_paid_collection(self):
-        for n in range(3):
-            self.evidence(n)
+    def test_archive_with_three_different_products_skips_paid_collection(self):
+        for n, product in enumerate(("Codex", "Claude Code", "Cursor")):
+            self.evidence(n, product=product)
         run = start_fill()
         advance(run.pk, self.config)
         run.refresh_from_db()
@@ -72,6 +72,23 @@ class InitialFillTests(TestCase):
         select_initial(run.pk)
         self.assertEqual(run.publications.count(), 3)
         self.assertIsNone(select_publication())
+
+    def test_archive_repeating_one_product_still_reads_paid_history(self):
+        for n in range(4):
+            self.evidence(n)
+        run = start_fill()
+        advance(run.pk, self.config)
+        run.refresh_from_db()
+        # Four takes on the same product are one news item, not enough to cancel the history read.
+        self.assertEqual(run.status, "collecting")
+        self.assertEqual(run.committed, 0)
+
+    def test_rank_gives_each_product_a_turn_before_repeating(self):
+        self.evidence(1, score=99)
+        self.evidence(2, score=95)
+        self.evidence(3, score=80, product="Cursor")
+        run = start_fill()
+        self.assertEqual([event.product for event in rank(run, self.config, 2)], ["Codex", "Cursor"])
 
     def test_initial_selection_ranks_events_excludes_incidents_and_caps_total(self):
         for n, score in enumerate((71, 80, 95, 99)):
@@ -91,18 +108,61 @@ class InitialFillTests(TestCase):
         with override_settings(QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED=False):
             self.assertFalse(publication_allowed(pub, self.config))
 
-    def test_existing_daily_posts_leave_only_one_fill_slot(self):
+    def test_daily_limit_neither_caps_nor_is_consumed_by_the_fill(self):
+        self.config.daily_limit = 1
+        self.config.save()
+        today = local_day(self.config, self.now).date()
         for n in range(3):
             self.evidence(n)
         for n in (10, 11):
             event = self.evidence(n, days=0)
-            NewsPublication.objects.create(event=event, target=self.target, status="sent", slot_date=local_day(self.config, self.now).date())
+            NewsPublication.objects.create(event=event, target=self.target, status="sent", slot_date=today)
         run = start_fill()
         run.status = "assessing"
         run.save()
         select_initial(run.pk)
         select_initial(run.pk)
-        self.assertEqual(run.publications.count(), 1)
+        # Already published days and a stricter daily limit never shrink the one-time fill.
+        self.assertEqual(run.publications.count(), 3)
+        self.assertFalse(run.publications.exclude(slot_date=None).exists())
+        self.assertFalse(NewsDailyQuota.objects.filter(target=self.target, date=today).exists())
+
+    def test_fill_publications_leave_the_regular_daily_slot_free(self):
+        self.config.daily_limit = 1
+        self.config.save()
+        for n in range(3):
+            self.evidence(n)
+        run = start_fill()
+        run.status = "assessing"
+        run.save()
+        select_initial(run.pk)
+        self.assertEqual(run.publications.count(), 3)
+        regular = NewsPublication(event=self.evidence(20, days=0), target=self.target)
+        self.assertTrue(reserve_day(regular, self.config, self.now))
+        self.assertEqual(regular.slot_date, local_day(self.config, self.now).date())
+
+    def test_rejected_publication_frees_its_slot_for_the_next_event(self):
+        for n, product in enumerate(("Codex", "Claude Code", "Cursor", "Gemini")):
+            self.evidence(n, product=product, score=90-n)
+        run = start_fill()
+        run.status = "assessing"
+        run.save()
+        select_initial(run.pk)
+        self.assertEqual(run.publications.count(), 3)
+        run.publications.update(status="sent")
+        run.publications.filter(event__product="Codex").update(status="blocked")
+        run.status = "publishing"
+        run.save()
+        advance(run.pk, self.config)
+        run.refresh_from_db()
+        self.assertEqual(run.status, "assessing")
+        select_initial(run.pk)
+        self.assertEqual(run.publications.exclude(status="blocked").count(), 3)
+        self.assertTrue(run.publications.filter(event__product="Gemini").exists())
+        run.publications.exclude(status="blocked").update(status="sent")
+        advance(run.pk, self.config)
+        run.refresh_from_db()
+        self.assertEqual(run.status, "completed")
 
     def test_two_dollar_cap_includes_unknown_and_settled_requests(self):
         run = start_fill()

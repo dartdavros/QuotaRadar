@@ -7,9 +7,9 @@ from apps.sources.models import Feed, SourcePost, SourceSubscription
 from .errors import NewsPolicyError
 from .models import (InitialFill, InitialFillSource, InitialFillAssessment, NewsAssessment,
                      NewsConfiguration, NewsEvent, NewsPublication)
-from .scheduling import reserve_day
 
 ACTIVE_FILL = ("archive", "collecting", "assessing", "publishing")
+FILL_LIMIT = 3  # The one-time fill has its own cap and neither reads nor consumes the daily quota.
 
 def enabled(config):
     return (settings.QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED and config.collection_enabled
@@ -49,6 +49,19 @@ def candidates(run, config):
     return NewsEvent.objects.filter(evidence__post_id__in=assessment_posts, score__gte=config.min_score).exclude(
         event_type="incident").exclude(publications__target_id=run.target_id).distinct()
 
+def products(run, config):
+    """Distinct products among candidates; three near-identical events are not three news items."""
+    return {name.strip().casefold() for name in candidates(run, config).values_list("product", flat=True)}
+
+def rank(run, config, limit):
+    """Best first, but every product gets a turn before any product repeats."""
+    seen, primary, extra = set(), [], []
+    for event in candidates(run, config).order_by("-score", "-urgent", "-last_seen_at"):
+        key = event.product.strip().casefold()
+        (extra if key in seen else primary).append(event)
+        seen.add(key)
+    return (primary+extra)[:limit]
+
 def pending_assessments(run):
     return run.assessments.filter(assessment__status__in=("pending", "running"),
         assessment__post__source__enabled=True, assessment__post__source__subscriptions__feed=Feed.NEWS,
@@ -62,14 +75,11 @@ def select_initial(run_id):
         return
     if run.status != "assessing" or pending_assessments(run):
         return
-    remaining = min(config.daily_limit, 3)-run.publications.count()
-    events = candidates(run, config).order_by("-score", "-urgent", "-last_seen_at")[:max(remaining, 0)]
+    remaining = FILL_LIMIT-run.publications.exclude(status="blocked").count()
     selected = 0
-    for event in events:
-        publication = NewsPublication(event=event, target_id=run.target_id, initial_fill=run, urgent=False)
-        if not reserve_day(publication, config):
-            return  # Preserve assessing state and wait for the next day, within the run deadline.
-        publication.save()
+    for event in rank(run, config, max(remaining, 0)):
+        # slot_date stays empty: history goes out at once and never occupies a regular publication slot.
+        NewsPublication.objects.create(event=event, target_id=run.target_id, initial_fill=run, urgent=False)
         selected += 1
     run.status = "publishing" if selected or run.publications.exists() else "completed"
     if run.status == "completed":

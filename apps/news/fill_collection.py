@@ -9,7 +9,8 @@ from apps.monitoring.services import prepare_source_posts, persist_source_posts
 from apps.monitoring.x_api import XApiResponseError, XApiRateLimitError
 from .scheduling import due
 from .budget import BudgetExhausted
-from .initial_fill import enabled, register_archive, candidates, pending_assessments, select_initial
+from .initial_fill import (FILL_LIMIT, candidates, enabled, register_archive, products,
+                           pending_assessments, select_initial)
 from .models import InitialFill, InitialFillSource
 from .x_client import fetch_page
 
@@ -33,7 +34,8 @@ def advance(run_id, config):
         register_archive(run)
         if run.status == "archive":
             if not pending_assessments(run):
-                run.status = "assessing" if candidates(run, config).count() >= 3 else "collecting"
+                # Only three genuinely different products justify skipping the paid history read.
+                run.status = "assessing" if len(products(run, config)) >= 3 else "collecting"
                 run.save(update_fields=("status",))
         elif run.status == "collecting":
             read_page(run, config)
@@ -41,7 +43,9 @@ def advance(run_id, config):
             select_initial(run.pk)
         elif run.status == "publishing":
             if not run.publications.exclude(status__in=("sent", "blocked")).exists():
-                run.status = "completed"
+                # A text rejected by fact-checking gives its slot back instead of shrinking the fill.
+                free = FILL_LIMIT-run.publications.exclude(status="blocked").count()
+                run.status = "assessing" if free > 0 and candidates(run, config).exists() else "completed"
                 run.save(update_fields=("status",))
     finally:
         InitialFill.objects.filter(pk=run_id, lease_until=run.lease_until).update(lease_until=None)

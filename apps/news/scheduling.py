@@ -12,6 +12,8 @@ def local_day(config, now=None):
 
 def reserve_day(publication, config, now=None):
     """Called inside an atomic block; uncertain outcomes consume their slot."""
+    if publication.initial_fill_id:
+        return True  # The one-time fill keeps its own cap and never touches the regular daily quota.
     local = local_day(config, now)
     quota, _ = NewsDailyQuota.objects.get_or_create(target_id=publication.target_id, date=local.date())
     NewsDailyQuota.objects.select_for_update().get(pk=quota.pk)
