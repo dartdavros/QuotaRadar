@@ -160,7 +160,9 @@ jobs:
 
           web_container=$(sudo docker compose ps -q web)
           healthy=false
-          for _ in $(seq 1 30); do
+          # Six services are rebuilt before this point, so allow three minutes,
+          # not one: the previous window expired in the same second web answered.
+          for _ in $(seq 1 90); do
             health=$(
               sudo docker inspect \
                 --format '{{.State.Health.Status}}' \
@@ -176,7 +178,7 @@ jobs:
           if [ "$healthy" != true ]; then
             sudo docker compose ps
             sudo docker compose logs --tail 200 web init
-            echo "QuotaRadar web service did not become healthy." >&2
+            echo "QuotaRadar web service did not become healthy (last status: ${health:-unknown})." >&2
             exit 1
           fi
 
