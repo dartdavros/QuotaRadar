@@ -14,7 +14,7 @@ from apps.news.collection import register_posts
 from apps.news.editorial import save_event
 from apps.news.media import attachment_plan, validate_url
 from apps.news.models import NewsAssessment, NewsConfiguration, NewsDelivery, NewsEvent, NewsPublication, XBudgetPeriod
-from apps.news.quality import render, validate_assessment
+from apps.news.quality import editorial, render, validate_assessment
 from apps.news.schemas import AssessmentPayload, Fact, WritingPayload
 from apps.news.scheduling import reserve_day, select_publication
 from apps.news.sending import resolve
@@ -127,16 +127,27 @@ class NewsPolicyTests(TestCase):
         with self.assertRaises(ValueError):
             validate_assessment(payload, self.post())
 
+    def test_editorial_floor_rejects_truncated_thin_and_repeating_texts(self):
+        body = "Обновление добавляет разбор кода и заметно ускоряет проверку. " * 5
+        with self.assertRaises(ValueError):
+            editorial(WritingPayload(title="К"*121, text=body))
+        with self.assertRaises(ValueError):
+            editorial(WritingPayload(title="Обновление Codex", text="Запуск Codex."))
+        with self.assertRaises(ValueError):
+            editorial(WritingPayload(title="Обновление Codex", text="Обновление Codex. "+body))
+        editorial(WritingPayload(title="Обновление Codex", text=body))
+
     def test_render_escapes_text_and_uses_only_real_source_links(self):
         post = self.post()
-        text = render(WritingPayload(title="Codex <обновился>", text="Проверка кода & изменения."), [post])
+        body = " Проверка кода и изменения в разборе, ускорение и новые настройки для команд."*3
+        text = render(WritingPayload(title="Codex <обновился>", text="Разбор & правки."+body), [post])
         self.assertIn("&lt;обновился&gt;", text)
         self.assertIn(post.source_url, text)
         # Only the original source is credited; the publication carries no date line.
         self.assertNotIn(post.published_at.strftime("%Y"), text)
         self.assertTrue(text.rstrip().endswith("</a>"))
         with self.assertRaises(ValueError):
-            render(WritingPayload(title="Обновление Codex", text="Подробнее https://invented.example"), [post])
+            render(WritingPayload(title="Обновление Codex", text="Подробнее https://invented.example"+body), [post])
 
     def test_resolution_requires_operator_note_and_message_ids(self):
         publication = NewsPublication.objects.create(event=self.event(1), target=self.target, status="uncertain")

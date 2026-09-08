@@ -9,7 +9,7 @@ from apps.monitoring.services import prepare_source_posts, persist_source_posts
 from apps.monitoring.x_api import XApiResponseError, XApiRateLimitError
 from .scheduling import due
 from .budget import BudgetExhausted
-from .initial_fill import (FILL_LIMIT, candidates, enabled, register_archive, products,
+from .initial_fill import (FILL_LIMIT, enabled, register_archive, products, remaining,
                            pending_assessments, select_initial)
 from .models import InitialFill, InitialFillSource
 from .x_client import fetch_page
@@ -42,11 +42,16 @@ def advance(run_id, config):
         elif run.status == "assessing":
             select_initial(run.pk)
         elif run.status == "publishing":
-            if not run.publications.exclude(status__in=("sent", "blocked")).exists():
-                # A text rejected by fact-checking gives its slot back instead of shrinking the fill.
+            # Top up while texts are still being written, never after delivery has started:
+            # a later wave would otherwise drop older news below newer news in the channel.
+            if not run.publications.filter(status="preparing").exists():
                 free = FILL_LIMIT-run.publications.exclude(status="blocked").count()
-                run.status = "assessing" if free > 0 and candidates(run).exists() else "completed"
-                run.save(update_fields=("status",))
+                if free > 0 and remaining(run):
+                    run.status = "assessing"
+                    run.save(update_fields=("status",))
+                elif not run.publications.exclude(status__in=("sent", "blocked")).exists():
+                    run.status = "completed"
+                    run.save(update_fields=("status",))
     finally:
         InitialFill.objects.filter(pk=run_id, lease_until=run.lease_until).update(lease_until=None)
 

@@ -9,11 +9,13 @@ from apps.telegram.models import DeliveryTarget
 from apps.news.budget import reserve, settle, BudgetExhausted
 from apps.news.errors import NewsPolicyError
 from apps.news.fill_collection import advance
-from apps.news.initial_fill import FILL_LIMIT, start_fill, register_archive, rank, select_initial
+from apps.news.fill_delivery import fill_ready, frozen
+from apps.news.initial_fill import (FILL_LIMIT, start_fill, register_archive, rank,
+                                    remaining, select_initial)
 from apps.news.models import (InitialFill, NewsAssessment, NewsConfiguration, NewsDailyQuota,
                              NewsDelivery, NewsEvent, NewsEventEvidence, NewsPublication, XBudgetPeriod)
 from apps.news.payload import publication_expired, publication_allowed
-from apps.news.scheduling import select_publication, local_day, reserve_day, fill_ready
+from apps.news.scheduling import select_publication, local_day, reserve_day
 
 
 @override_settings(QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED=True)
@@ -108,7 +110,10 @@ class InitialFillTests(TestCase):
         run.status = "assessing"
         run.save()
         select_initial(run.pk)
-        first, second = run.publications.order_by("pk")
+        run.publications.update(status="ready")
+        run.refresh_from_db()
+        self.assertTrue(frozen(run))
+        first, second = run.publications.order_by("event__first_seen_at")
         self.assertEqual([first.event.product, second.event.product], ["Cursor", "Codex"])
         self.assertTrue(fill_ready(first, self.now))
         self.assertFalse(fill_ready(second, self.now))
@@ -116,6 +121,59 @@ class InitialFillTests(TestCase):
         NewsDelivery.objects.create(publication=first, sent_at=self.now)
         self.assertFalse(fill_ready(second, self.now+timedelta(seconds=29)))
         self.assertTrue(fill_ready(second, self.now+timedelta(seconds=30)))
+
+    def test_nothing_is_sent_while_another_event_can_still_join_the_run(self):
+        for n, product in enumerate(("Codex", "Cursor")):
+            self.evidence(n, product=product, days=2)
+        run = start_fill()
+        run.status = "assessing"
+        run.save()
+        select_initial(run.pk)
+        run.publications.update(status="ready")
+        run.refresh_from_db()
+        self.assertTrue(frozen(run))
+        # A later wave appears; delivery waits for it instead of racing ahead of older news.
+        self.evidence(9, product="Gemini", days=3)
+        register_archive(run)
+        self.assertFalse(frozen(run))
+        self.assertFalse(fill_ready(run.publications.order_by("pk").first(), self.now))
+
+    def test_a_later_wave_still_publishes_before_the_newer_posts_it_predates(self):
+        self.evidence(1, product="Codex", days=1)
+        run = start_fill()
+        run.status = "assessing"
+        run.save()
+        select_initial(run.pk)
+        self.evidence(2, product="Cursor", days=3)
+        register_archive(run)
+        run.publications.update(status="ready")
+        run.refresh_from_db()
+        advance(run.pk, self.config)
+        run.refresh_from_db()
+        self.assertEqual(run.status, "assessing")
+        select_initial(run.pk)
+        run.publications.update(status="ready")
+        run.refresh_from_db()
+        self.assertTrue(frozen(run))
+        oldest = run.publications.order_by("event__first_seen_at").first()
+        newest = run.publications.order_by("-event__first_seen_at").first()
+        self.assertEqual(oldest.event.product, "Cursor")
+        self.assertTrue(fill_ready(oldest, self.now))
+        self.assertFalse(fill_ready(newest, self.now))
+
+    def test_a_product_already_published_never_returns_in_a_later_wave(self):
+        self.evidence(1, product="Astra", score=90, days=1)
+        self.evidence(2, product="Astra", score=85, days=3)
+        run = start_fill()
+        run.status = "assessing"
+        run.save()
+        select_initial(run.pk)
+        self.assertEqual(run.publications.count(), 1)
+        self.assertFalse(remaining(run))
+        run.status = "assessing"
+        run.save()
+        select_initial(run.pk)
+        self.assertEqual(run.publications.count(), 1)
 
     def test_selection_excludes_incidents_and_publishes_history_in_order(self):
         for n, (score, product, days) in enumerate(
@@ -171,6 +229,7 @@ class InitialFillTests(TestCase):
         self.assertEqual(regular.slot_date, local_day(self.config, self.now).date())
 
     @patch("apps.news.fill_collection.FILL_LIMIT", 3)
+    @patch("apps.news.fill_delivery.FILL_LIMIT", 3)
     @patch("apps.news.initial_fill.FILL_LIMIT", 3)
     def test_rejected_publication_frees_its_slot_for_the_next_event(self):
         for n, product in enumerate(("Codex", "Claude Code", "Cursor", "Gemini")):

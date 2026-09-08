@@ -1,23 +1,11 @@
 """Serialize publication reservations and enforce a strict daily channel cap."""
-from datetime import timedelta
 from zoneinfo import ZoneInfo
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
-from .models import NewsConfiguration, NewsDailyQuota, NewsDelivery, NewsEvent, NewsPublication, InitialFill
+from .models import NewsConfiguration, NewsDailyQuota, NewsEvent, NewsPublication, InitialFill
 
 ACTIVE = ("preparing", "ready", "sending", "sent", "uncertain")
-FILL_GAP = timedelta(seconds=30)
-
-def fill_ready(publication, now):
-    """History leaves oldest first and spaced out, so a fresh channel is not flooded at once."""
-    run_id = publication.initial_fill_id
-    if NewsPublication.objects.filter(initial_fill_id=run_id, pk__lt=publication.pk).exclude(
-            status__in=("sent", "blocked")).exists():
-        return False
-    previous = NewsDelivery.objects.filter(
-        publication__initial_fill_id=run_id, sent_at__isnull=False).order_by("-sent_at").first()
-    return previous is None or now-previous.sent_at >= FILL_GAP
 
 def local_day(config, now=None):
     return (now or timezone.now()).astimezone(ZoneInfo(config.timezone))

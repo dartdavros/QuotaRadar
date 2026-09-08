@@ -6,7 +6,8 @@ from .cache import cleanup_sent, ensure_uploads
 from .locks import publication_lock
 from .models import NewsConfiguration, NewsDelivery, NewsPublication
 from .payload import publication_hash, publication_expired, publication_allowed
-from .scheduling import fill_ready, reserve_day
+from .fill_delivery import fill_ready
+from .scheduling import reserve_day
 from .transport import NewsTransport, DeliveryRejected, DeliveryRateLimited, RemoteMediaRejected
 
 

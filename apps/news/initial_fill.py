@@ -52,16 +52,27 @@ def candidates(run):
     return NewsEvent.objects.filter(evidence__post_id__in=assessment_posts, score__gte=FILL_MIN_SCORE).exclude(
         event_type="incident").exclude(publications__target_id=run.target_id).distinct()
 
-def products(run):
-    """Distinct products among candidates; repeated takes on one product are one news item."""
-    return {name.strip().casefold() for name in candidates(run).values_list("product", flat=True)}
+def key(product):
+    return " ".join(product.split()).casefold()
 
-def rank(run, limit):
-    """One best event per product, then oldest first so the channel reads like a real timeline."""
+def remaining(run):
+    """Best event per product still open for this run; products it already used stay closed."""
+    taken = {key(name) for name in NewsPublication.objects.filter(
+        initial_fill=run).values_list("event__product", flat=True)}
     best = {}
     for event in candidates(run).order_by("-score", "-urgent", "-last_seen_at"):
-        best.setdefault(event.product.strip().casefold(), event)
-    chosen = sorted(best.values(), key=lambda event: (-event.score, event.first_seen_at))[:limit]
+        name = key(event.product)
+        if name not in taken:
+            best.setdefault(name, event)
+    return best
+
+def products(run):
+    """Distinct products still open; repeated takes on one product are one news item."""
+    return set(remaining(run))
+
+def rank(run, limit):
+    """Best by score, published oldest first so the channel reads like a real timeline."""
+    chosen = sorted(remaining(run).values(), key=lambda event: (-event.score, event.first_seen_at))[:limit]
     return sorted(chosen, key=lambda event: event.first_seen_at)
 
 def pending_assessments(run):
