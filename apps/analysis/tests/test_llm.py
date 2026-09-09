@@ -62,6 +62,28 @@ class OpenAICompatibleLlmClientTests(TestCase):
         self.assertEqual(response_format["type"], "json_schema")
         self.assertTrue(response_format["json_schema"]["strict"])
 
+    def test_raw_line_breaks_inside_string_values_are_paragraphs_not_errors(self) -> None:
+        # Verbatim shape of a production answer from ai.api.cloud.yandex.net: paragraphs
+        # separated by real newlines inside the JSON string, which strict JSON forbids.
+        content = ('{"text": "В Cursor теперь доступна модель Muse Spark 1.3 от Meta.' + chr(10) + chr(10) +
+                   'Модель может улучшить работу с кодом в редакторе.", '
+                   '"title": "В Cursor доступна модель Muse Spark 1.3 от Meta"}')
+        self.assertIn(chr(10), content)
+        raw = {"choices": [{"message": {"role": "assistant", "content": content}}]}
+        self.http_client.post.return_value = self.response(200, raw)
+        from apps.news.schemas import WritingPayload
+        client = OpenAICompatibleLlmClient(
+            configuration=self.configuration,
+            http_client=self.http_client,
+            api_key="secret-key",
+            response_model=WritingPayload,
+        )
+
+        result = client.analyze(system_prompt="system", user_prompt="user")
+
+        self.assertEqual(result.payload.title, "В Cursor доступна модель Muse Spark 1.3 от Meta")
+        self.assertEqual(result.payload.text.count(chr(10)*2), 1)
+
     def test_invalid_structured_output_preserves_raw_response_for_failure_record(
         self,
     ) -> None:

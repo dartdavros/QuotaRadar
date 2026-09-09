@@ -218,6 +218,8 @@ def _extract_structured_content(raw_response: dict[str, Any]) -> object:
     if not isinstance(content, str):
         raise LlmStructuredOutputError(raw_response=raw_response)
     try:
-        return json.loads(content)
+        # Some gateways leave raw line breaks inside string values; those are the paragraph
+        # breaks we asked for, not a malformed answer.
+        return json.loads(content, strict=False)
     except (TypeError, ValueError):
         raise LlmStructuredOutputError(raw_response=raw_response) from None
