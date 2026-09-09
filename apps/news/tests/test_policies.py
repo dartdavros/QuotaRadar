@@ -14,7 +14,7 @@ from apps.news.collection import register_posts
 from apps.news.editorial import save_event
 from apps.news.media import attachment_plan, validate_url
 from apps.news.models import NewsAssessment, NewsConfiguration, NewsDelivery, NewsEvent, NewsPublication, XBudgetPeriod
-from apps.news.quality import TITLE_LIMIT, editorial, render, validate_assessment
+from apps.news.quality import render, validate_assessment
 from apps.news.schemas import AssessmentPayload, Fact, WritingPayload
 from apps.news.scheduling import reserve_day, select_publication
 from apps.news.sending import resolve
@@ -130,41 +130,23 @@ class NewsPolicyTests(TestCase):
     def test_writing_prompt_names_both_output_fields(self):
         # The model guessed which field held the story until the prompt said so explicitly.
         prompt = NewsConfiguration.load().writing_prompt
-        self.assertEqual((prompt.code, prompt.version, prompt.is_active), ("news_writing", 3, True))
+        self.assertEqual((prompt.code, prompt.version, prompt.is_active), ("news_writing", 4, True))
         self.assertIn('"title" — заголовок', prompt.system_prompt)
         self.assertIn('"text" — сама новость', prompt.system_prompt)
         self.assertNotIn("добавит дату", prompt.system_prompt)
-
-    def test_writing_schema_leaves_room_to_reject_instead_of_truncating(self):
-        # The provider cuts at maxLength, so the schema must accept more than the editorial norm:
-        # an oversized title has to come back whole and be rewritten, never arrive cut mid-word.
-        title = "Заголовок"*((TITLE_LIMIT//9)+5)
-        payload = WritingPayload(title=title, text="Текст новости. "*40)
-        self.assertEqual(payload.title, title)
-        with self.assertRaises(ValueError):
-            editorial(payload)
-
-    def test_editorial_floor_rejects_truncated_thin_and_repeating_texts(self):
-        body = "Обновление добавляет разбор кода и заметно ускоряет проверку. " * 5
-        with self.assertRaises(ValueError):
-            editorial(WritingPayload(title="К"*121, text=body))
-        with self.assertRaises(ValueError):
-            editorial(WritingPayload(title="Обновление Codex", text="Запуск Codex."))
-        with self.assertRaises(ValueError):
-            editorial(WritingPayload(title="Обновление Codex", text="Обновление Codex. "+body))
-        editorial(WritingPayload(title="Обновление Codex", text=body))
+        self.assertNotIn("всего 400", prompt.system_prompt)
+        self.assertIn("объём задают факты", prompt.system_prompt)
 
     def test_render_escapes_text_and_uses_only_real_source_links(self):
         post = self.post()
-        body = " Проверка кода и изменения в разборе, ускорение и новые настройки для команд."*3
-        text = render(WritingPayload(title="Codex <обновился>", text="Разбор & правки."+body), [post])
+        text = render(WritingPayload(title="Codex <обновился>", text="Проверка кода & изменения."), [post])
         self.assertIn("&lt;обновился&gt;", text)
         self.assertIn(post.source_url, text)
         # Only the original source is credited; the publication carries no date line.
         self.assertNotIn(post.published_at.strftime("%Y"), text)
         self.assertTrue(text.rstrip().endswith("</a>"))
         with self.assertRaises(ValueError):
-            render(WritingPayload(title="Обновление Codex", text="Подробнее https://invented.example"+body), [post])
+            render(WritingPayload(title="Обновление Codex", text="Подробнее https://invented.example"), [post])
 
     def test_resolution_requires_operator_note_and_message_ids(self):
         publication = NewsPublication.objects.create(event=self.event(1), target=self.target, status="uncertain")
