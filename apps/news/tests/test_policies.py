@@ -127,6 +127,14 @@ class NewsPolicyTests(TestCase):
         with self.assertRaises(ValueError):
             validate_assessment(payload, self.post())
 
+    def test_writing_prompt_names_both_output_fields(self):
+        # The model guessed which field held the story until the prompt said so explicitly.
+        prompt = NewsConfiguration.load().writing_prompt
+        self.assertEqual((prompt.code, prompt.version, prompt.is_active), ("news_writing", 3, True))
+        self.assertIn('"title" — заголовок', prompt.system_prompt)
+        self.assertIn('"text" — сама новость', prompt.system_prompt)
+        self.assertNotIn("добавит дату", prompt.system_prompt)
+
     def test_writing_schema_leaves_room_to_reject_instead_of_truncating(self):
         # The provider cuts at maxLength, so the schema must accept more than the editorial norm:
         # an oversized title has to come back whole and be rewritten, never arrive cut mid-word.
