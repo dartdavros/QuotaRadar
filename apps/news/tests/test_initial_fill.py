@@ -10,6 +10,8 @@ from apps.news.budget import reserve, settle, BudgetExhausted
 from apps.news.errors import NewsPolicyError
 from apps.news.fill_collection import advance
 from apps.news.fill_delivery import fill_ready, frozen
+from apps.news.preparation import prepare
+from apps.news.schemas import HistoricalVerificationPayload, WritingPayload
 from apps.news.initial_fill import (FILL_LIMIT, start_fill, register_archive, rank,
                                     remaining, select_initial)
 from apps.news.models import (InitialFill, NewsAssessment, NewsConfiguration, NewsDailyQuota,
@@ -61,6 +63,57 @@ class InitialFillTests(TestCase):
         run.save()
         with self.assertRaises(NewsPolicyError):
             start_fill()
+
+    def test_fill_reads_accounts_without_the_topic_filter(self):
+        run = start_fill()
+        self.assertTrue(run.sources.exists())
+        self.assertFalse(run.sources.exclude(query_terms="").exists())
+
+    def test_history_is_released_in_x_order_over_the_whole_window(self):
+        # Five products spread over the four-day window, assessed in a deliberately shuffled order.
+        for n, (product, days) in enumerate((("Gemini", 1.4), ("Codex", 3.8), ("Cursor", 0.6), ("Astra", 2.2), ("Sora", 3.0))):
+            self.evidence(n, product=product, days=days)
+        # Claude Tag was first posted 3.9 days ago, but that post reached the event only after a later one.
+        tag = self.evidence(9, product="Claude Tag", days=0.5)
+        early = SourcePost.objects.create(source=self.source, external_id="early-tag", text="Claude Tag.",
+            normalized_text="Claude Tag.", source_url="https://x.com/OpenAIDevs/status/early-tag",
+            published_at=self.now-timedelta(days=3.9), raw_data={})
+        NewsAssessment.objects.create(post=early, status="done")
+        NewsEventEvidence.objects.create(event=tag, post=early, facts=[])
+        run = start_fill()
+        run.status = "assessing"
+        run.save()
+        select_initial(run.pk)
+        run.publications.update(status="ready")
+        run.refresh_from_db()
+        self.assertTrue(frozen(run))
+        sent, clock = [], self.now
+        while run.publications.exclude(status="sent").exists():
+            ready = [p for p in run.publications.exclude(status="sent").select_related("event") if fill_ready(p, clock)]
+            self.assertEqual(len(ready), 1, "exactly one post may leave at a time")
+            publication = ready[0]
+            run.publications.filter(pk=publication.pk).update(status="sent")
+            NewsDelivery.objects.create(publication=publication, sent_at=clock)
+            happened = publication.event.evidence.order_by("post__published_at").first().post.published_at
+            sent.append((publication.event.product, happened))
+            clock += timedelta(seconds=30)
+        print("\n  delivery order:", " -> ".join(f"{p} ({(self.now-t).days}d {(self.now-t).seconds//3600}h ago)" for p, t in sent))
+        self.assertEqual([p for p, _ in sent], ["Claude Tag", "Codex", "Sora", "Astra", "Gemini", "Cursor"])
+        self.assertEqual([t for _, t in sent], sorted(t for _, t in sent))
+
+    def test_history_keeps_a_supported_text_even_if_its_offer_expired(self):
+        event = self.evidence(1, product="Astra")
+        run = start_fill()
+        publication = NewsPublication.objects.create(event=event, target=self.target, initial_fill=run, attempts=4)
+        writing = WritingPayload(title="Astra развёрнута для пользователей Plus и Pro",
+                                 text="Astra доступна в Codex и ChatGPT Work.\n\nСброс лимитов прошёл раньше срока.")
+        verdict = HistoricalVerificationPayload(supported=True, reason="Подтверждено", still_relevant=False)
+        with patch("apps.news.preparation.ask", side_effect=[(writing, "m", {}), (verdict, "m", {})]):
+            prepare(publication.pk, self.config)
+        publication.refresh_from_db()
+        # Attempt five of six: history outlives a flaky provider and is not rejected for being old.
+        self.assertEqual((publication.status, publication.attempts), ("ready", 5))
+        self.assertNotIn("2026", publication.rendered)
 
     def test_three_products_no_longer_cancel_the_paid_history_read(self):
         for n, product in enumerate(("Codex", "Claude Code", "Cursor")):

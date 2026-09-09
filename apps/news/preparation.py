@@ -20,7 +20,8 @@ def prepare(publication_id, config):
             return
         if publication.next_attempt_at and publication.next_attempt_at > now:
             return
-        if publication.attempts >= 3:
+        limit = 6 if publication.initial_fill_id else 3  # history may wait out a flaky provider
+        if publication.attempts >= limit:
             publication.status, publication.last_error = "blocked", "Попытки подготовки исчерпаны."
             publication.save()
             return
@@ -43,7 +44,8 @@ def prepare(publication_id, config):
         verification, _, verification_usage = ask(config, prompt=config.verification_prompt,
             schema=HistoricalVerificationPayload if publication.initial_fill_id else VerificationPayload, data={"publication": writing.model_dump(), "sources": sources,
                 "publication_time": now.isoformat(), "historical": bool(publication.initial_fill_id)})
-        if not verification.supported or (publication.initial_fill_id and not verification.still_relevant):
+        # History is published as history: facts must hold, expiry of an old offer does not reject it.
+        if not verification.supported:
             raise NewsPolicyError("Проверка фактов отклонила текст.")
         rendered = render(writing, posts)
         preserve(publication, posts)
@@ -57,7 +59,7 @@ def prepare(publication_id, config):
         )
     except Exception as exc:
         NewsPublication.objects.filter(pk=publication_id, status="preparing", attempts=attempt).update(
-            status="blocked" if attempt >= 3 else "preparing", lease_until=None,
+            status="blocked" if attempt >= limit else "preparing", lease_until=None,
             next_attempt_at=now+timedelta(minutes=5),
             last_error=str(exc) if isinstance(exc, NewsPolicyError) else f"Подготовка не завершена: {type(exc).__name__}.",
         )

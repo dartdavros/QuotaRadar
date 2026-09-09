@@ -1,6 +1,8 @@
 """Hold the seeded history until the run is fully chosen, then release it oldest first."""
 from datetime import timedelta
 
+from django.db.models import Min
+
 from .initial_fill import FILL_LIMIT, remaining
 from .models import NewsDelivery
 
@@ -21,8 +23,8 @@ def fill_ready(publication, now):
     run = publication.initial_fill
     if not frozen(run):
         return False
-    nearest = run.publications.exclude(status__in=("sent", "blocked")).order_by(
-        "event__first_seen_at", "pk").values_list("pk", flat=True).first()
+    nearest = run.publications.exclude(status__in=("sent", "blocked")).annotate(
+        happened=Min("event__evidence__post__published_at")).order_by("happened", "pk").values_list("pk", flat=True).first()
     if nearest != publication.pk:
         return False
     previous = NewsDelivery.objects.filter(

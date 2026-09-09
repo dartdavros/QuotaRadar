@@ -7,14 +7,20 @@ from .errors import NewsPolicyError
 
 
 
+def canonical(value):
+    """Words only, one case: a quote is checked for its words, not for punctuation or quotes."""
+    return " ".join(re.findall(r"\w+", value.casefold()))
+
+
 def validate_assessment(payload: AssessmentPayload, post):
     if not payload.relevant:
         return
     if not payload.confirmed or not payload.facts or not payload.product.strip() or not payload.event_key.strip():
         raise NewsPolicyError("Не хватает подтверждённых фактов события.")
-    normalized = " ".join(post.normalized_text.split())
+    source = f" {canonical(post.normalized_text)} "
     for fact in payload.facts:
-        if " ".join(fact.evidence.split()) not in normalized:
+        quote = canonical(fact.evidence)
+        if not quote or f" {quote} " not in source:
             raise NewsPolicyError("Подтверждающий фрагмент отсутствует в источнике.")
     if payload.urgent and payload.event_type not in {"model_release", "tool_release"}:
         raise NewsPolicyError("Срочность разрешена только подтверждённому крупному запуску.")

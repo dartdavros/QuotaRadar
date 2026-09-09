@@ -92,5 +92,6 @@ def save_event(post, payload, config):
     event.facts += [fact for fact in facts if fact["text"] not in existing]
     event.score = max(event.score, payload.score)
     event.urgent = event.urgent or payload.urgent
+    event.first_seen_at = min(event.first_seen_at, post.published_at)
     event.last_seen_at = max(event.last_seen_at, post.published_at)
     event.save()

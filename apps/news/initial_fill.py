@@ -2,6 +2,7 @@
 from datetime import timedelta
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Min
 from django.utils import timezone
 from apps.sources.models import Feed, SourcePost, SourceSubscription
 from .errors import NewsPolicyError
@@ -34,8 +35,9 @@ def start_fill():
     subscriptions = SourceSubscription.objects.filter(feed=Feed.NEWS, enabled=True, source__enabled=True)
     if not subscriptions.exists():
         raise NewsPolicyError("Нет включённых новостных источников.")
+    # Seeding reads everything an account posted in the window; the topic filter stays for daily polling.
     InitialFillSource.objects.bulk_create([
-        InitialFillSource(run=run, subscription=sub, query_terms=sub.query_terms) for sub in subscriptions])
+        InitialFillSource(run=run, subscription=sub, query_terms="") for sub in subscriptions])
     register_archive(run)
     return run
 
@@ -48,9 +50,11 @@ def register_archive(run):
         InitialFillAssessment.objects.get_or_create(run=run, assessment=assessment)
 
 def candidates(run):
+    """Open events with `happened`: the moment the earliest post about them appeared on X."""
     assessment_posts = run.assessments.values_list("assessment__post_id", flat=True)
     return NewsEvent.objects.filter(evidence__post_id__in=assessment_posts, score__gte=FILL_MIN_SCORE).exclude(
-        event_type="incident").exclude(publications__target_id=run.target_id).distinct()
+        event_type="incident").exclude(publications__target_id=run.target_id).annotate(
+        happened=Min("evidence__post__published_at")).distinct()
 
 def key(product):
     return " ".join(product.split()).casefold()
@@ -72,8 +76,8 @@ def products(run):
 
 def rank(run, limit):
     """Best by score, published oldest first so the channel reads like a real timeline."""
-    chosen = sorted(remaining(run).values(), key=lambda event: (-event.score, event.first_seen_at))[:limit]
-    return sorted(chosen, key=lambda event: event.first_seen_at)
+    chosen = sorted(remaining(run).values(), key=lambda event: (-event.score, event.happened))[:limit]
+    return sorted(chosen, key=lambda event: event.happened)
 
 def pending_assessments(run):
     return run.assessments.filter(assessment__status__in=("pending", "running"),

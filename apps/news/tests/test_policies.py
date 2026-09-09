@@ -120,6 +120,26 @@ class NewsPolicyTests(TestCase):
         self.assertEqual(NewsEvent.objects.count(), 1)
         self.assertEqual(NewsEvent.objects.get().evidence.count(), 2)
 
+    def test_fact_evidence_survives_case_and_punctuation_drift(self):
+        post = self.post(normalized_text="Our CI team's on-call first responder is Claude Tag. It keeps a lessons.md as it learns.")
+        base = dict(relevant=True, product="Claude Tag", version="", event_type="tool_release", event_key="tag",
+                    confirmed=True, urgent=False, score=85, reason="Инструмент", related_event_id=None)
+        for quote in ("first responder is Claude Tag", "our ci team’s on-call first responder", "keeps a lessons.md as it learns."):
+            validate_assessment(AssessmentPayload(facts=[Fact(text="Факт.", evidence=quote)], **base), post)
+        with self.assertRaises(ValueError):
+            validate_assessment(AssessmentPayload(facts=[Fact(text="Факт.", evidence="Claude Tag learns")], **base), post)
+
+    def test_event_takes_the_time_of_its_earliest_post_whichever_is_assessed_first(self):
+        payload = AssessmentPayload(relevant=True, product="Codex", version="1.0", event_type="tool_release",
+            event_key="release", confirmed=True, urgent=True, score=90, reason="Релиз",
+            facts=[Fact(text="Добавлена проверка кода.", evidence="Codex adds code review.")], related_event_id=None)
+        with transaction.atomic():
+            save_event(self.post("993"), payload, self.config)
+            save_event(self.post("994", published_at=self.now-timedelta(hours=5)), payload, self.config)
+        event = NewsEvent.objects.get()
+        self.assertEqual(event.first_seen_at, self.now-timedelta(hours=5))
+        self.assertEqual(event.last_seen_at, self.now)
+
     def test_fact_evidence_must_exist_in_original(self):
         payload = AssessmentPayload(relevant=True, product="Codex", version="", event_type="feature",
             event_key="review", confirmed=True, urgent=False, score=80, reason="Функция",
