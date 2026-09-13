@@ -4,6 +4,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from .models import NewsConfiguration, NewsDailyQuota, NewsEvent, NewsPublication, InitialFill
+from .payload import MAX_EVENT_AGE
 
 ACTIVE = ("preparing", "ready", "sending", "sent", "uncertain")
 
@@ -40,7 +41,7 @@ def select_publication():
     occupied = minute is not None and NewsPublication.objects.filter(
         target=config.target, slot_date=local.date(), slot_minute=minute, status__in=ACTIVE,
     ).exists()
-    events = NewsEvent.objects.filter(expires_at__gt=now, score__gte=config.min_score)
+    events = NewsEvent.objects.filter(expires_at__gt=now, first_seen_at__gt=now-MAX_EVENT_AGE, score__gte=config.min_score)
     events = events.exclude(publications__target=config.target)
     if config.activated_at:
         events = events.filter(first_seen_at__gte=config.activated_at)

@@ -1,7 +1,10 @@
 """Freeze editorial content and media identity independently of temporary cache files."""
+from datetime import timedelta
 from hashlib import sha256
 import json
 from django.conf import settings
+
+MAX_EVENT_AGE = timedelta(minutes=5)  # A news event older than this is never sent, whatever its expiry.
 
 
 def publication_hash(publication, rendered=None):
@@ -11,8 +14,12 @@ def publication_hash(publication, rendered=None):
     }, sort_keys=True).encode()).hexdigest()
 
 
+def event_deadline(event):
+    return min(event.expires_at, event.first_seen_at + MAX_EVENT_AGE)
+
+
 def publication_expired(publication, now):
-    deadline = publication.initial_fill.expires_at if publication.initial_fill_id else publication.event.expires_at
+    deadline = publication.initial_fill.expires_at if publication.initial_fill_id else event_deadline(publication.event)
     return deadline <= now
 
 

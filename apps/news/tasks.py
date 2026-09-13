@@ -9,6 +9,7 @@ from .collection import collect_source, register_posts
 from .editorial import assess
 from .fill_collection import advance
 from .initial_fill import ACTIVE_FILL
+from .payload import MAX_EVENT_AGE
 from .models import InitialFill, InitialFillAssessment, NewsAssessment, NewsConfiguration, NewsPublication
 from .preparation import prepare
 from .scheduling import due, select_publication
@@ -27,7 +28,8 @@ def tick():
     NewsPublication.objects.filter(status="sending", lease_until__lte=now).update(
         status="uncertain", lease_until=None,
         last_error="Воркер не сохранил квитанцию. Проверьте канал перед повтором.")
-    expired = Q(initial_fill__isnull=True, event__expires_at__lte=now) | Q(initial_fill__expires_at__lte=now)
+    stale = Q(event__expires_at__lte=now) | Q(event__first_seen_at__lte=now-MAX_EVENT_AGE)
+    expired = Q(initial_fill__isnull=True) & stale | Q(initial_fill__expires_at__lte=now)
     NewsPublication.objects.filter(expired, status__in=("ready", "preparing")).update(
         status="blocked", lease_until=None, last_error="Новость устарела.")
     if settings.QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED:
