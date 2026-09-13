@@ -11,7 +11,7 @@ from apps.monitoring.dashboard import build_dashboard
 from apps.monitoring.dashboard.report import ERROR, OFF, OK, WARN
 from apps.monitoring.events import record_monitoring_event
 from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
-from apps.news.models import CollectionCheckpoint, NewsConfiguration, XBudgetPeriod
+from apps.news.models import CollectionCheckpoint, NewsConfiguration, NewsEvent, XBudgetPeriod
 from apps.sources.models import Feed, Source, SourcePost
 from apps.telegram.models import DeliveryTarget
 from tests._otp import force_login_verified
@@ -84,6 +84,18 @@ class HealthPanelTests(TestCase):
         self.assertIn("2.995 из 5.000", check.details[0])
         self.assertIn("Повтор через 1", check.summary)
         self.assertEqual(check.level, WARN)
+
+    def test_publishing_card_shows_the_queue_and_next_window(self, _ping):
+        news = NewsConfiguration.load()
+        news.publishing_enabled, news.analysis_enabled, news.activated_at = True, True, self.now - timedelta(days=1)
+        news.target = DeliveryTarget.objects.create(target_type="channel", feed=Feed.NEWS, telegram_chat_id="-100123")
+        news.save()
+        NewsEvent.objects.create(fingerprint="q1", product="Codex", event_type="tool_release", score=90, urgent=True,
+                                 first_seen_at=self.now, last_seen_at=self.now, expires_at=self.now + timedelta(hours=3))
+        check = by_title(build_dashboard(), "Публикация новостей в Telegram")
+        self.assertIn("В очереди: 1 событий", check.details[0])
+        self.assertIn("срочных 1", check.details[0])
+        self.assertIn("Следующее окно:", check.details[0])
 
     def test_disabled_monitoring_is_off_not_broken(self, _ping):
         self.config.monitoring_enabled = False

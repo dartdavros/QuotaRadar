@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from django.db.models import Max, Q
 
 from apps.news.budget import WEEKLY_CAP
-from apps.news.models import (CollectionCheckpoint, NewsAssessment, NewsConfiguration, NewsDelivery,
+from apps.news.models import (CollectionCheckpoint, NewsAssessment, NewsConfiguration, NewsDelivery, NewsEvent,
                               NewsPublication, XBudgetPeriod)
 from apps.sources.models import Feed, SourcePost
 
@@ -18,6 +19,33 @@ STUCK_AFTER = timedelta(minutes=30)
 def retry_in(moment, now) -> str:
     seconds = max(0, int((moment - now).total_seconds()))
     return f"{seconds} с" if seconds < 60 else f"{seconds // 60} мин"
+
+
+def next_window(config, now) -> str:
+    """Human label of the next regular publication window in the configured timezone."""
+    local = now.astimezone(ZoneInfo(config.timezone))
+    minute_now = local.hour * 60 + local.minute
+    windows = sorted(config.windows)
+    upcoming = [w for w in windows if w > minute_now]
+    if any(0 <= minute_now - w < 30 for w in windows):
+        return "открыто сейчас"
+    if upcoming:
+        return f"сегодня в {upcoming[0] // 60:02d}:{upcoming[0] % 60:02d}"
+    return f"завтра в {windows[0] // 60:02d}:{windows[0] % 60:02d}" if windows else "окна не заданы"
+
+
+def queue_line(config, now) -> str:
+    """What is waiting to be published and when it can go out."""
+    events = NewsEvent.objects.filter(expires_at__gt=now, score__gte=config.min_score)
+    if config.activated_at:
+        events = events.filter(first_seen_at__gte=config.activated_at)
+    if config.target_id:
+        events = events.exclude(publications__target=config.target)
+    urgent = events.filter(urgent=True).count()
+    local_date = now.astimezone(ZoneInfo(config.timezone)).date()
+    today = NewsPublication.objects.filter(slot_date=local_date, status__in=("ready", "sending", "sent", "uncertain")).count()
+    return (f"В очереди: {events.count()} событий с оценкой ≥ {config.min_score}, из них срочных {urgent}. "
+            f"Опубликовано сегодня: {today} из {config.daily_limit}. Следующее окно: {next_window(config, now)}.")
 
 
 def news_config_link(config):
@@ -71,6 +99,10 @@ def check_news_editorial(config: NewsConfiguration, now) -> Check:
     if config.publishing_enabled and (not config.writing_prompt or not config.writing_prompt.is_active):
         check.fail(ERROR, "Не задан активный промпт редактора: тексты не пишутся.")
     check.last_success = age(NewsAssessment.objects.filter(status="done").aggregate(m=Max("created_at"))["m"], now)
+    day = now - timedelta(hours=24)
+    assessed = NewsAssessment.objects.filter(status="done", created_at__gte=day).count()
+    events = NewsEvent.objects.filter(first_seen_at__gte=day).count()
+    check.details.append(f"За сутки отобрано постов: {assessed}, событий создано: {events}.")
     stuck_since = now - STUCK_AFTER
     stuck = NewsAssessment.objects.filter(status__in=("pending", "running"), created_at__lt=stuck_since).filter(
         Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lt=now)).count()
@@ -82,7 +114,6 @@ def check_news_editorial(config: NewsConfiguration, now) -> Check:
         latest = preparing.order_by("-created_at").first()
         check.fail(WARN, f"{preparing.count()} публикаций готовятся дольше 30 мин. "
                          f"{('Последняя ошибка: ' + short(latest.last_error, 140)) if latest.last_error else ''}")
-    day = now - timedelta(hours=24)
     blocked = NewsAssessment.objects.filter(status="blocked", created_at__gte=day).exclude(last_error="")
     if blocked.exists():
         latest = blocked.order_by("-created_at").first()
@@ -124,7 +155,8 @@ def check_news_publishing(config: NewsConfiguration, now) -> Check:
         Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lt=now)).count()
     if ready:
         check.fail(WARN, f"{ready} готовых публикаций не отправлены дольше 30 мин. Проверьте новостной воркер.")
-    check.details.insert(0, f"Отправлено за сутки: {NewsDelivery.objects.filter(sent_at__gte=day).count()}, "
+    check.details.insert(0, queue_line(config, now))
+    check.details.insert(1, f"Отправлено за сутки: {NewsDelivery.objects.filter(sent_at__gte=day).count()}, "
                             f"канал: {config.target.telegram_chat_id if config.target else '—'}.")
     if not check.summary:
         check.summary = "Новости публикуются."
