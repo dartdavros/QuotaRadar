@@ -77,6 +77,7 @@ def collect_source(subscription, config):
                     checkpoint.window_start = None
                     checkpoint.window_end = None
                 checkpoint.next_attempt_at = now + timedelta(seconds=10 if token else 120)
+                checkpoint.last_error = ""  # A saved page supersedes whatever stopped the previous attempt.
                 checkpoint.save()
             return "page_saved"
         except BudgetExhausted:

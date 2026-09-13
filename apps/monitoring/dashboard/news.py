@@ -5,12 +5,18 @@ from datetime import timedelta
 
 from django.db.models import Max, Q
 
+from apps.news.budget import WEEKLY_CAP
 from apps.news.models import (CollectionCheckpoint, NewsAssessment, NewsConfiguration, NewsDelivery,
                               NewsPublication, XBudgetPeriod)
 
 from .report import ERROR, OFF, WARN, Check, admin_link, age, short
 
 STUCK_AFTER = timedelta(minutes=30)
+
+
+def retry_in(moment, now) -> str:
+    seconds = max(0, int((moment - now).total_seconds()))
+    return f"{seconds} с" if seconds < 60 else f"{seconds // 60} мин"
 
 
 def news_config_link(config):
@@ -28,15 +34,18 @@ def check_news_collection(config: NewsConfiguration, now) -> Check:
         return check
     checkpoints = CollectionCheckpoint.objects.select_related("source")
     check.last_success = "собрано до " + age(checkpoints.aggregate(m=Max("completed_until"))["m"], now)
-    broken = [c for c in checkpoints if c.last_error]
-    for point in broken:
-        check.fail(WARN, f"@{point.source.username}: {short(point.last_error, 160)}")
-        check.details.append(f"@{point.source.username}: {short(point.last_error)}")
+    for point in (c for c in checkpoints if c.last_error):
+        retry = (f" Повтор через {retry_in(point.next_attempt_at, now)}." if point.next_attempt_at
+                 and point.next_attempt_at > now else " Повтор при следующем тике.")
+        check.fail(WARN, f"@{point.source.username}: {short(point.last_error, 160)}{retry}")
+        check.details.append(f"@{point.source.username}: {short(point.last_error)}{retry}")
+    # The setting is the truth; the week's stored limit only catches up on the next reservation.
+    limit = min(config.weekly_x_limit, WEEKLY_CAP)
     period = XBudgetPeriod.objects.order_by("-week").first()
-    if period and period.committed >= period.limit:
-        check.fail(WARN, f"Недельный бюджет X исчерпан ({period.committed} из {period.limit} USD): новые запросы не идут.")
-    elif period:
-        check.details.insert(0, f"Бюджет X за неделю: {period.committed} из {period.limit} USD.")
+    committed = period.committed if period else 0
+    if committed >= limit:
+        check.fail(WARN, f"Недельный бюджет X исчерпан ({committed} из {limit} USD): поднимите его в настройках новостей.")
+    check.details.insert(0, f"Бюджет X за неделю: {committed} из {limit} USD (по текущей настройке).")
     if not check.summary:
         check.summary = "Сбор идёт, ошибок по источникам нет."
     return check

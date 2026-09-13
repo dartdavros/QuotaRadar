@@ -11,6 +11,7 @@ from apps.monitoring.dashboard import build_dashboard
 from apps.monitoring.dashboard.report import ERROR, OFF, OK, WARN
 from apps.monitoring.events import record_monitoring_event
 from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
+from apps.news.models import CollectionCheckpoint, NewsConfiguration, XBudgetPeriod
 from apps.sources.models import Feed, Source
 from apps.telegram.models import DeliveryTarget
 from tests._otp import force_login_verified
@@ -68,6 +69,18 @@ class HealthPanelTests(TestCase):
         self.assertIn("news-worker", workers.summary)
         self.assertEqual(dashboard.errors[0].error_type, "TelegramPermanentChatError")
         self.assertIn("chat not found", by_title(dashboard, "Telegram (лимиты)").last_error)
+
+    def test_news_budget_follows_the_setting_not_the_frozen_week(self, _ping):
+        news = NewsConfiguration.load()
+        news.collection_enabled, news.weekly_x_limit = True, "5.000"
+        news.save()
+        XBudgetPeriod.objects.create(week=self.now.date(), limit="3.000", committed="2.995")
+        point = CollectionCheckpoint.objects.create(source=Source.objects.get(username="OpenAIDevs"),
+            last_error="Бюджет X исчерпан.", next_attempt_at=self.now + timedelta(minutes=12))
+        check = by_title(build_dashboard(), "Сбор новостей")
+        self.assertIn("2.995 из 5.000", check.details[0])
+        self.assertIn("Повтор через 1", check.summary)
+        self.assertEqual(check.level, WARN)
 
     def test_disabled_monitoring_is_off_not_broken(self, _ping):
         self.config.monitoring_enabled = False
