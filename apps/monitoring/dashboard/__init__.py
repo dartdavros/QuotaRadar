@@ -22,14 +22,14 @@ def build_dashboard() -> Dashboard:
     config = SystemConfiguration.load()
     news_config = NewsConfiguration.load()
     checks = [
-        _guard(check_workers),
-        _guard(check_scheduler, config, news_config, now),
-        _guard(check_x_polling, config, now),
-        _guard(check_ai_analysis, config, now),
-        _guard(check_telegram_quota, config, now),
-        _guard(check_news_collection, news_config, now),
-        _guard(check_news_editorial, news_config, now),
-        _guard(check_news_publishing, news_config, now),
+        _guard("Инфраструктура", check_workers),
+        _guard("Инфраструктура", check_scheduler, config, news_config, now),
+        _guard("Лимиты", check_x_polling, config, now),
+        _guard("Лимиты", check_ai_analysis, config, now),
+        _guard("Лимиты", check_telegram_quota, config, now),
+        _guard("Новости", check_news_collection, news_config, now),
+        _guard("Новости", check_news_editorial, news_config, now),
+        _guard("Новости", check_news_publishing, news_config, now),
     ]
     try:
         errors = recent_errors(now)
@@ -40,13 +40,14 @@ def build_dashboard() -> Dashboard:
                      headline=headline_for(checks), checks=checks, errors=errors)
 
 
-def _guard(check, *args) -> Check:
+def _guard(group: str, check, *args) -> Check:
     """A broken check reports itself as an error instead of taking the admin index down."""
     name = getattr(check, "__name__", "check")
     try:
-        return check(*args)
+        result = check(*args)
     except Exception as exc:
         logger.exception("Health panel check failed: %s", name)
-        broken = Check(name.replace("check_", "").replace("_", " "))
-        broken.fail(ERROR, f"Проверка упала: {type(exc).__name__}: {exc}")
-        return broken
+        result = Check(name.replace("check_", "").replace("_", " "))
+        result.fail(ERROR, f"Проверка упала: {type(exc).__name__}: {exc}")
+    result.group = group
+    return result

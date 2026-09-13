@@ -6,6 +6,7 @@ from django.utils import timezone
 from .models import InitialFill, XApiUsage, XBudgetPeriod
 
 FILL_LIMIT = Decimal("2.000")
+WEEKLY_CAP = Decimal("10.000")  # Hard ceiling regardless of the setting.
 
 class BudgetExhausted(RuntimeError):
     pass
@@ -21,13 +22,14 @@ def reserve(source, config, *, maximum, priority, operation="recent_search", ini
     week = current - timedelta(days=current.weekday())
     XBudgetPeriod.objects.get_or_create(week=week, defaults={"limit": config.weekly_x_limit})
     period = XBudgetPeriod.objects.select_for_update().get(week=week)
-    ceiling = min(period.limit, config.weekly_x_limit, Decimal("3"))
+    period.limit = min(config.weekly_x_limit, WEEKLY_CAP)  # The operator's setting applies at once, mid-week too.
+    ceiling = period.limit
     if not priority and run is None:
         ceiling *= Decimal("0.8")
     if maximum <= 0 or period.committed + maximum > ceiling:
         raise BudgetExhausted("Недельный бюджет новых X-запросов исчерпан.")
     period.committed += maximum
-    period.save(update_fields=("committed",))
+    period.save(update_fields=("committed", "limit"))
     if run:
         run.committed += maximum
         run.save(update_fields=("committed",))

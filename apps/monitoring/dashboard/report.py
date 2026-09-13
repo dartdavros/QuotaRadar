@@ -23,6 +23,7 @@ class Link:
 @dataclass
 class Check:
     title: str
+    group: str = ""
     level: str = OK
     summary: str = ""            # One line: what is wrong, or what is fine.
     details: list[str] = field(default_factory=list)
@@ -66,6 +67,18 @@ class Dashboard:
     @property
     def label(self) -> str:
         return LABELS[self.level]
+
+    @property
+    def groups(self) -> list[tuple[str, list[Check]]]:
+        """Checks in display order, bucketed by their group, first appearance wins."""
+        buckets: dict[str, list[Check]] = {}
+        for check in self.checks:
+            buckets.setdefault(check.group, []).append(check)
+        return list(buckets.items())
+
+    @property
+    def problems(self) -> int:
+        return sum(1 for c in self.checks if c.level in FAULTS)
 
 
 def worst(checks: list[Check]) -> str:

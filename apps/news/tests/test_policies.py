@@ -93,6 +93,17 @@ class NewsPolicyTests(TestCase):
             reserve(self.source, self.config, maximum=Decimal(".050"), priority=True)
         self.assertEqual(XBudgetPeriod.objects.get().committed, Decimal("3.000"))
 
+    def test_raising_the_weekly_budget_applies_to_the_current_week(self):
+        reserve(self.source, self.config, maximum=Decimal("3.000"), priority=True)
+        with self.assertRaises(BudgetExhausted):
+            reserve(self.source, self.config, maximum=Decimal(".050"), priority=True)
+        self.config.weekly_x_limit = Decimal("10.000")
+        self.config.save()
+        reserve(self.source, self.config, maximum=Decimal("7.000"), priority=True)
+        self.assertEqual(XBudgetPeriod.objects.get().limit, Decimal("10.000"))
+        with self.assertRaises(BudgetExhausted):
+            reserve(self.source, self.config, maximum=Decimal(".050"), priority=True)
+
     def test_urgent_selection_still_stops_at_three(self):
         for n in range(4):
             self.event(n)

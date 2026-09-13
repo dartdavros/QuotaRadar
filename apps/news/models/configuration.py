@@ -32,7 +32,7 @@ class NewsConfiguration(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(168)])
     weekly_x_limit = models.DecimalField("Недельный бюджет новых X-запросов, USD",
         max_digits=6, decimal_places=3, default=Decimal("3.000"),
-        validators=[MinValueValidator(Decimal("0.100")), MaxValueValidator(Decimal("3.000"))])
+        validators=[MinValueValidator(Decimal("0.100")), MaxValueValidator(Decimal("10.000"))])
     llm_model = models.CharField("Модель ИИ (пусто — системная)", max_length=200, blank=True)
     assessment_prompt = models.ForeignKey("configuration.PromptTemplate", on_delete=models.PROTECT,
         related_name="news_assessment_configurations", verbose_name="Промпт отбора", null=True, blank=True)
