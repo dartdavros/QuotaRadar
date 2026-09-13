@@ -20,6 +20,7 @@ from .client import (
     TelegramResponseError,
     TelegramTemporaryError,
 )
+from .freshness import stale
 from .delivery_state import (
     increment_attempts,
     mark_failed,
@@ -105,6 +106,17 @@ def _deliver_locked(
             task_id=_task_id(task),
         )
         return _result("disabled", delivery)
+    if stale(delivery.analysis.source_post.published_at, timezone.now()):
+        mark_failed(delivery.pk, "Событие старше пяти минут.")
+        record_monitoring_event(
+            component=MonitoringComponent.TELEGRAM,
+            status=MonitoringEventStatus.ERROR,
+            source=delivery.analysis.source_post.source,
+            message=f"Доставка {delivery.pk} отменена: событие старше пяти минут.",
+            error_type="DeliveryStale",
+            task_id=_task_id(task),
+        )
+        return _result("stale", delivery)
 
     try:
         text = format_delivery_message(delivery.analysis)

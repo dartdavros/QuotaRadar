@@ -1,10 +1,8 @@
 """Freeze editorial content and media identity independently of temporary cache files."""
-from datetime import timedelta
 from hashlib import sha256
 import json
 from django.conf import settings
-
-MAX_EVENT_AGE = timedelta(minutes=5)  # A news event older than this is never sent, whatever its expiry.
+from apps.telegram.freshness import MAX_EVENT_AGE
 
 
 def publication_hash(publication, rendered=None):

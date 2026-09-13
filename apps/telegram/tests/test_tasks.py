@@ -38,7 +38,7 @@ def rejected_lock(delivery_id: int):
 
 class DeliverAnalysisTaskTests(TestCase):
     def setUp(self) -> None:
-        self.analysis = create_relevant_analysis()
+        self.analysis = create_relevant_analysis(published_at=timezone.now())
         self.target = DeliveryTarget.objects.create(
             target_type=DeliveryTargetType.PRIVATE_CHAT,
             telegram_chat_id="12345",
@@ -50,6 +50,18 @@ class DeliverAnalysisTaskTests(TestCase):
         configuration = SystemConfiguration.load()
         configuration.retry_count = 2
         configuration.save()
+
+    @patch("apps.telegram.tasks.delivery_send_lock", acquired_lock)
+    @patch("apps.telegram.tasks.TelegramBotApiClient")
+    def test_event_older_than_five_minutes_is_not_sent(self, client_class: Mock) -> None:
+        post = self.analysis.source_post
+        post.published_at = timezone.now() - timedelta(minutes=6)
+        post.save(update_fields=["published_at"])
+        result = deliver_analysis.apply(kwargs={"analysis_id": self.analysis.pk, "target_id": self.target.pk}).get()
+        self.assertEqual(result["status"], "stale")
+        client_class.assert_not_called()
+        self.delivery.refresh_from_db()
+        self.assertEqual(self.delivery.status, DeliveryStatus.FAILED)
 
     @patch("apps.telegram.tasks.delivery_send_lock", acquired_lock)
     @patch("apps.telegram.tasks.TelegramBotApiClient")

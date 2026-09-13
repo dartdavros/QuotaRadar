@@ -4,7 +4,7 @@ from apps.analysis.models import Analysis, AnalysisEventType, AnalysisProduct
 from apps.sources.models import Source, SourcePost, SourceProvider
 
 
-def create_relevant_analysis(*, external_id: str = "5001") -> Analysis:
+def create_relevant_analysis(*, external_id: str = "5001", published_at: datetime | None = None) -> Analysis:
     source = Source.objects.get(username="OpenAIDevs")
     post = SourcePost.objects.create(
         source=source,
@@ -12,7 +12,7 @@ def create_relevant_analysis(*, external_id: str = "5001") -> Analysis:
         text="Codex limits increased by 50%.",
         normalized_text="Codex limits increased by 50%.",
         source_url=f"https://x.com/OpenAIDevs/status/{external_id}",
-        published_at=datetime(2026, 7, 20, 10, 0, tzinfo=timezone.utc),
+        published_at=published_at or datetime(2026, 7, 20, 10, 0, tzinfo=timezone.utc),
         raw_data={},
     )
     return Analysis.objects.create(

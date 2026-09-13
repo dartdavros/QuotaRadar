@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
-from datetime import datetime, timezone
+from django.utils import timezone as django_timezone
 from typing import Any
 from unittest import skipUnless
 from unittest.mock import Mock, patch
@@ -161,9 +161,7 @@ class EndToEndPipelineTests(TransactionTestCase):
             post = {
                 "id": scenario["external_id"],
                 "text": scenario["text"],
-                "created_at": datetime(
-                    2026, 7, 20, 10, 0, tzinfo=timezone.utc
-                ).isoformat(),
+                "created_at": django_timezone.now().isoformat(),
                 "author_id": source.x_user_id,
             }
             llm_response = LlmAnalysisResponse(
@@ -228,7 +226,7 @@ class EndToEndPipelineTests(TransactionTestCase):
         duplicate_post = {
             "id": "8003",
             "text": "Weekly Codex limits are 50% higher.",
-            "created_at": datetime(2026, 7, 20, 10, 0, tzinfo=timezone.utc).isoformat(),
+            "created_at": django_timezone.now().isoformat(),
             "author_id": duplicate_source.x_user_id,
         }
         with patch(
