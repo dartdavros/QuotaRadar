@@ -8,6 +8,7 @@ from django.db.models import Max, Q
 from apps.news.budget import WEEKLY_CAP
 from apps.news.models import (CollectionCheckpoint, NewsAssessment, NewsConfiguration, NewsDelivery,
                               NewsPublication, XBudgetPeriod)
+from apps.sources.models import Feed, SourcePost
 
 from .report import ERROR, OFF, WARN, Check, admin_link, age, short
 
@@ -45,7 +46,12 @@ def check_news_collection(config: NewsConfiguration, now) -> Check:
     committed = period.committed if period else 0
     if committed >= limit:
         check.fail(WARN, f"Недельный бюджет X исчерпан ({committed} из {limit} USD): поднимите его в настройках новостей.")
-    check.details.insert(0, f"Бюджет X за неделю: {committed} из {limit} USD (по текущей настройке).")
+    received = SourcePost.objects.filter(source__subscriptions__feed=Feed.NEWS, source__subscriptions__enabled=True,
+                                         received_at__gte=now - timedelta(hours=24)).distinct().count()
+    if not received:
+        check.fail(WARN, "За сутки не собрано ни одного поста для новостей.")
+    check.details.insert(0, f"Бюджет X за неделю: {committed} из {limit} USD (по текущей настройке), "
+                            f"постов за сутки: {received}.")
     if not check.summary:
         check.summary = "Сбор идёт, ошибок по источникам нет."
     return check

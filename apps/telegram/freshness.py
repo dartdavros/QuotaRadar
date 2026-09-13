@@ -1,7 +1,7 @@
-"""One rule for every Telegram feed: an event older than five minutes is never sent."""
+"""Quota-reset deliveries: a source post older than thirty minutes is never sent (covers polling plus analysis)."""
 from datetime import timedelta
 
-MAX_EVENT_AGE = timedelta(minutes=5)
+MAX_EVENT_AGE = timedelta(minutes=30)
 
 
 def stale(published_at, now):

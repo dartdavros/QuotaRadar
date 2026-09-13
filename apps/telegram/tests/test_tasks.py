@@ -53,15 +53,27 @@ class DeliverAnalysisTaskTests(TestCase):
 
     @patch("apps.telegram.tasks.delivery_send_lock", acquired_lock)
     @patch("apps.telegram.tasks.TelegramBotApiClient")
-    def test_event_older_than_five_minutes_is_not_sent(self, client_class: Mock) -> None:
+    def test_event_older_than_thirty_minutes_is_not_sent(self, client_class: Mock) -> None:
         post = self.analysis.source_post
-        post.published_at = timezone.now() - timedelta(minutes=6)
+        post.published_at = timezone.now() - timedelta(minutes=31)
         post.save(update_fields=["published_at"])
         result = deliver_analysis.apply(kwargs={"analysis_id": self.analysis.pk, "target_id": self.target.pk}).get()
         self.assertEqual(result["status"], "stale")
         client_class.assert_not_called()
         self.delivery.refresh_from_db()
         self.assertEqual(self.delivery.status, DeliveryStatus.FAILED)
+
+    @patch("apps.telegram.tasks.delivery_send_lock", acquired_lock)
+    @patch("apps.telegram.tasks.TelegramBotApiClient")
+    def test_event_twenty_minutes_old_is_still_sent(self, client_class: Mock) -> None:
+        post = self.analysis.source_post
+        post.published_at = timezone.now() - timedelta(minutes=20)
+        post.save(update_fields=["published_at"])
+        client = Mock()
+        client.send_message.return_value = "778"
+        client_class.return_value.__enter__.return_value = client
+        result = deliver_analysis.apply(kwargs={"analysis_id": self.analysis.pk, "target_id": self.target.pk}).get()
+        self.assertEqual(result["status"], "sent")
 
     @patch("apps.telegram.tasks.delivery_send_lock", acquired_lock)
     @patch("apps.telegram.tasks.TelegramBotApiClient")

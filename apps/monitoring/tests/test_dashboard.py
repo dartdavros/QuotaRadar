@@ -12,7 +12,7 @@ from apps.monitoring.dashboard.report import ERROR, OFF, OK, WARN
 from apps.monitoring.events import record_monitoring_event
 from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
 from apps.news.models import CollectionCheckpoint, NewsConfiguration, XBudgetPeriod
-from apps.sources.models import Feed, Source
+from apps.sources.models import Feed, Source, SourcePost
 from apps.telegram.models import DeliveryTarget
 from tests._otp import force_login_verified
 
@@ -33,6 +33,9 @@ class HealthPanelTests(TestCase):
         self.config.save()
         DeliveryTarget.objects.create(target_type="private_chat", feed=Feed.QUOTA, telegram_chat_id="1")
         Source.objects.filter(enabled=True).update(last_checked_at=self.now, last_success_at=self.now, last_error="")
+        SourcePost.objects.create(source=Source.objects.get(username="OpenAIDevs"), external_id="hp-1", text="t",
+                                  normalized_text="t", source_url="https://x.com/OpenAIDevs/status/hp-1",
+                                  published_at=self.now, raw_data={})
 
     def test_everything_green_when_nothing_is_wrong(self, _ping):
         dashboard = build_dashboard()

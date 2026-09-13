@@ -49,7 +49,11 @@ def check_x_polling(config, now) -> Check:
     for source in failing:
         check.fail(ERROR, f"@{source.username}: {short(source.last_error, 160)}")
         check.details.append(f"@{source.username}: {short(source.last_error)}")
-    check.details.insert(0, f"Активных источников: {len(sources)}, опрос каждые {minutes(config.poll_interval_seconds)}.")
+    received = SourcePost.objects.filter(source__in=sources, received_at__gte=now - timedelta(hours=24)).count()
+    if not received:
+        check.fail(WARN, "За сутки не получено ни одного поста. Либо источники молчат, либо X ничего не отдаёт.")
+    check.details.insert(0, f"Активных источников: {len(sources)}, опрос каждые {minutes(config.poll_interval_seconds)}, "
+                            f"постов за сутки: {received}.")
     if not check.summary:
         check.summary = "Все источники опрашиваются вовремя."
     return check

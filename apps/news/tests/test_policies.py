@@ -47,14 +47,12 @@ class NewsPolicyTests(TestCase):
             event_type="tool_release", score=score, urgent=urgent, facts=[{"text": "Факт"}],
             first_seen_at=first_seen_at or self.now, last_seen_at=self.now, expires_at=self.now+timedelta(hours=3))
 
-    def test_events_older_than_five_minutes_are_never_sent(self):
-        stale = self.event(1, first_seen_at=self.now-timedelta(minutes=6))
-        self.assertIsNone(select_publication())
-        publication = NewsPublication.objects.create(event=stale, target=self.target, urgent=True, status="ready")
-        self.assertTrue(publication_expired(publication, self.now))
-        fresh = self.event(2, first_seen_at=self.now-timedelta(minutes=4))
-        publication = NewsPublication.objects.create(event=fresh, target=self.target, urgent=True, status="ready")
+    def test_event_age_does_not_matter_until_it_expires(self):
+        old = self.event(1, first_seen_at=self.now-timedelta(minutes=30))
+        self.assertIsNotNone(select_publication())
+        publication = NewsPublication.objects.get(event=old)
         self.assertFalse(publication_expired(publication, self.now))
+        self.assertTrue(publication_expired(publication, old.expires_at))
 
     def test_defaults_are_opt_in_and_news_only_accounts_do_not_reach_quota(self):
         self.assertFalse(self.config.collection_enabled)

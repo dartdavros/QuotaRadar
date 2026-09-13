@@ -2,7 +2,6 @@
 from hashlib import sha256
 import json
 from django.conf import settings
-from apps.telegram.freshness import MAX_EVENT_AGE
 
 
 def publication_hash(publication, rendered=None):
@@ -12,12 +11,8 @@ def publication_hash(publication, rendered=None):
     }, sort_keys=True).encode()).hexdigest()
 
 
-def event_deadline(event):
-    return min(event.expires_at, event.first_seen_at + MAX_EVENT_AGE)
-
-
 def publication_expired(publication, now):
-    deadline = publication.initial_fill.expires_at if publication.initial_fill_id else event_deadline(publication.event)
+    deadline = publication.initial_fill.expires_at if publication.initial_fill_id else publication.event.expires_at
     return deadline <= now
 
 

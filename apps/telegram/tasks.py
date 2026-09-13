@@ -107,12 +107,12 @@ def _deliver_locked(
         )
         return _result("disabled", delivery)
     if stale(delivery.analysis.source_post.published_at, timezone.now()):
-        mark_failed(delivery.pk, "Событие старше пяти минут.")
+        mark_failed(delivery.pk, "Событие старше 30 минут.")
         record_monitoring_event(
             component=MonitoringComponent.TELEGRAM,
             status=MonitoringEventStatus.ERROR,
             source=delivery.analysis.source_post.source,
-            message=f"Доставка {delivery.pk} отменена: событие старше пяти минут.",
+            message=f"Доставка {delivery.pk} отменена: событие старше 30 минут.",
             error_type="DeliveryStale",
             task_id=_task_id(task),
         )
