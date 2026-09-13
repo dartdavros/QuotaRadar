@@ -3,6 +3,7 @@ from django.contrib import admin, messages
 from django import forms
 from django.core.exceptions import ValidationError
 from .errors import NewsPolicyError
+from .budget import resume_budget_paused_collection
 from .initial_fill import start_fill
 from apps.sources.models import SourceSubscription
 from .models import (NewsConfiguration, NewsAssessment, NewsEvent, NewsPublication, NewsDelivery,
@@ -34,6 +35,11 @@ class NewsConfigurationAdmin(admin.ModelAdmin):
         else:
             self.log_change(request, queryset.get(), f"Первичное наполнение {run.pk}, X до $2.")
             self.message_user(request, "Первичное наполнение поставлено в очередь.", messages.SUCCESS)
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if "weekly_x_limit" in form.changed_data and resume_budget_paused_collection():
+            self.message_user(request, "Бюджет изменён: источники, остановленные бюджетом, продолжат сбор в течение минуты.",
+                              messages.INFO)
     def has_add_permission(self, request):
         return False
     def has_delete_permission(self, request, obj=None):

@@ -10,7 +10,7 @@ from apps.monitoring.locks import source_poll_lock
 from apps.monitoring.services import prepare_source_posts, persist_source_posts
 from apps.monitoring.x_api import XApiRateLimitError, XApiResponseError
 from apps.sources.models import Feed, SourcePost, SourceSubscription
-from .budget import BudgetExhausted
+from .budget import BUDGET_PAUSE, BudgetExhausted
 from .models import CollectionCheckpoint, NewsAssessment
 from .x_client import build_query, fetch_page
 
@@ -82,7 +82,7 @@ def collect_source(subscription, config):
             return "page_saved"
         except BudgetExhausted:
             checkpoint.next_attempt_at = now + timedelta(minutes=30)
-            checkpoint.last_error = "Бюджет X исчерпан; окно сохранено для продолжения."
+            checkpoint.last_error = BUDGET_PAUSE
         except XApiRateLimitError as exc:
             checkpoint.next_attempt_at = now + timedelta(seconds=exc.retry_after_seconds())
             checkpoint.last_error = "X ограничил частоту запросов."

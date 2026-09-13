@@ -3,10 +3,11 @@ from datetime import timedelta, timezone as dt_timezone
 from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
-from .models import InitialFill, XApiUsage, XBudgetPeriod
+from .models import CollectionCheckpoint, InitialFill, XApiUsage, XBudgetPeriod
 
 FILL_LIMIT = Decimal("2.000")
 WEEKLY_CAP = Decimal("10.000")  # Hard ceiling regardless of the setting.
+BUDGET_PAUSE = "Бюджет X исчерпан; окно сохранено для продолжения."
 
 class BudgetExhausted(RuntimeError):
     pass
@@ -57,3 +58,8 @@ def settle(usage_id, *, resources=None):
     period.save(update_fields=("committed",))
     usage.charged_estimate, usage.resources, usage.status = actual, resources, "counted"
     usage.save(update_fields=("charged_estimate", "resources", "status"))
+
+
+def resume_budget_paused_collection() -> int:
+    """Let sources paused by an exhausted budget retry on the next tick instead of waiting out the pause."""
+    return CollectionCheckpoint.objects.filter(last_error=BUDGET_PAUSE).update(next_attempt_at=None)

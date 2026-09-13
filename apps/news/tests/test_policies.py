@@ -9,11 +9,12 @@ from django.utils import timezone
 from apps.sources.models import Feed, Source, SourcePost, SourceSubscription
 from apps.sources.routing import accepts_quota
 from apps.telegram.models import DeliveryTarget
-from apps.news.budget import reserve, settle, BudgetExhausted
+from apps.news.budget import reserve, settle, resume_budget_paused_collection, BudgetExhausted, BUDGET_PAUSE
 from apps.news.collection import register_posts
 from apps.news.editorial import save_event
 from apps.news.media import attachment_plan, validate_url
-from apps.news.models import NewsAssessment, NewsConfiguration, NewsDelivery, NewsEvent, NewsPublication, XBudgetPeriod
+from apps.news.models import (CollectionCheckpoint, NewsAssessment, NewsConfiguration, NewsDelivery, NewsEvent,
+                              NewsPublication, XBudgetPeriod)
 from apps.news.quality import render, validate_assessment
 from apps.news.payload import publication_expired
 from apps.news.schemas import AssessmentPayload, Fact, WritingPayload
@@ -103,6 +104,17 @@ class NewsPolicyTests(TestCase):
         self.assertEqual(XBudgetPeriod.objects.get().limit, Decimal("10.000"))
         with self.assertRaises(BudgetExhausted):
             reserve(self.source, self.config, maximum=Decimal(".050"), priority=True)
+
+    def test_raising_the_budget_ends_the_thirty_minute_pause(self):
+        paused = CollectionCheckpoint.objects.create(source=self.source, last_error=BUDGET_PAUSE,
+                                                     next_attempt_at=self.now+timedelta(minutes=25))
+        other = CollectionCheckpoint.objects.create(source=Source.objects.get(username="cursor_ai"),
+                                                    last_error="X ограничил частоту запросов.",
+                                                    next_attempt_at=self.now+timedelta(minutes=5))
+        self.assertEqual(resume_budget_paused_collection(), 1)
+        paused.refresh_from_db(); other.refresh_from_db()
+        self.assertIsNone(paused.next_attempt_at)
+        self.assertIsNotNone(other.next_attempt_at)
 
     def test_urgent_selection_still_stops_at_three(self):
         for n in range(4):
