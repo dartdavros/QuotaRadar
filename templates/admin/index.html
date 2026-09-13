@@ -1,0 +1,7 @@
+{% extends "admin/index.html" %}
+{% block coltype %}colM{% endblock %}
+{% block sidebar %}{% endblock %}
+{% block content %}
+{% include "admin/monitoring/dashboard.html" with dashboard=dashboard %}
+{{ block.super }}
+{% endblock %}

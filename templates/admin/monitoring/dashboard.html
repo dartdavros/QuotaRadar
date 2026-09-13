@@ -1,0 +1,57 @@
+{% load static %}
+<link rel="stylesheet" href="{% static 'css/health_panel.css' %}">
+<section class="hp" id="health-panel">
+  {% if dashboard.failure %}
+    <div class="hp-banner hp-error">
+      <div class="hp-banner-title">ПАНЕЛЬ НЕ ПОСТРОИЛАСЬ</div>
+      <div class="hp-banner-text">{{ dashboard.failure }}</div>
+    </div>
+  {% else %}
+    <div class="hp-banner hp-{{ dashboard.level }}">
+      <div class="hp-banner-title">{{ dashboard.headline }}</div>
+      <div class="hp-banner-text">Состояние системы на {{ dashboard.generated_at }}. Обновите страницу для повторной проверки.</div>
+    </div>
+
+    <div class="hp-grid">
+      {% for check in dashboard.checks %}
+        <article class="hp-card hp-{{ check.level }}">
+          <header class="hp-card-head">
+            <span class="hp-badge">{{ check.label }}</span>
+            <h3>{{ check.title }}</h3>
+          </header>
+          <p class="hp-summary">{{ check.summary }}</p>
+          <dl class="hp-facts">
+            {% if check.last_success %}<dt>Последний успех</dt><dd>{{ check.last_success }}</dd>{% endif %}
+            {% if check.last_error %}<dt>Последняя ошибка</dt><dd>{{ check.last_error_at }}: {{ check.last_error }}</dd>{% endif %}
+            {% for line in check.details %}<dt></dt><dd>{{ line }}</dd>{% endfor %}
+          </dl>
+          {% if check.links %}
+            <nav class="hp-links">
+              {% for link in check.links %}<a href="{{ link.url }}">{{ link.label }}</a>{% endfor %}
+            </nav>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+
+    <h2 class="hp-h2">Ошибки за последние 24 часа</h2>
+    {% if dashboard.errors %}
+      <table class="hp-table">
+        <thead><tr><th>Когда</th><th>Компонент</th><th>Тип</th><th>Сообщение</th><th>Раз</th></tr></thead>
+        <tbody>
+          {% for row in dashboard.errors %}
+            <tr>
+              <td class="hp-nowrap">{{ row.at }}</td>
+              <td class="hp-nowrap"><a href="{{ row.url }}">{{ row.component }}</a></td>
+              <td class="hp-nowrap">{{ row.error_type }}</td>
+              <td>{{ row.message }}</td>
+              <td class="hp-nowrap">{{ row.count }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="hp-empty">Ошибок за сутки нет.</p>
+    {% endif %}
+  {% endif %}
+</section>

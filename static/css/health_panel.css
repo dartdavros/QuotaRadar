@@ -1,0 +1,39 @@
+/* Admin health panel. Colours are deliberately loud: the operator must see red from across the room. */
+.hp { margin: 0 0 28px; }
+.hp-banner { padding: 18px 22px; border-radius: 8px; color: #fff; margin-bottom: 18px; }
+.hp-banner-title { font-size: 22px; font-weight: 700; letter-spacing: .02em; }
+.hp-banner-text { margin-top: 4px; opacity: .92; font-size: 13px; }
+.hp-banner.hp-ok, .hp-banner.hp-off { background: #1f8a3b; }
+.hp-banner.hp-warn { background: #c77d00; }
+.hp-banner.hp-error { background: #c0202a; }
+
+.hp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.hp-card { border: 1px solid var(--hairline-color, #ddd); border-left-width: 8px; border-radius: 6px;
+           padding: 12px 14px; background: var(--body-bg, #fff); color: var(--body-fg, #333); }
+.hp-card.hp-ok { border-left-color: #1f8a3b; }
+.hp-card.hp-off { border-left-color: #9a9a9a; opacity: .8; }
+.hp-card.hp-warn { border-left-color: #e08a00; }
+.hp-card.hp-error { border-left-color: #d1222c; }
+.hp-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.hp-card-head h3 { margin: 0; font-size: 15px; }
+.hp-badge { font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 3px 8px; border-radius: 10px; color: #fff; }
+.hp-ok .hp-badge { background: #1f8a3b; }
+.hp-off .hp-badge { background: #9a9a9a; }
+.hp-warn .hp-badge { background: #e08a00; }
+.hp-error .hp-badge { background: #d1222c; }
+.hp-summary { margin: 0 0 8px; font-weight: 600; font-size: 14px; line-height: 1.35; }
+.hp-error .hp-summary { color: #d1222c; }
+.hp-warn .hp-summary { color: #b86f00; }
+.hp-facts { margin: 0; font-size: 12.5px; line-height: 1.4; }
+.hp-facts dt { float: left; clear: left; width: 120px; color: var(--body-quiet-color, #666); }
+.hp-facts dd { margin: 0 0 3px 124px; overflow-wrap: anywhere; }
+.hp-links { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+.hp-links a { font-size: 12px; padding: 4px 9px; border-radius: 4px; background: var(--button-bg, #79aec8); color: #fff; text-decoration: none; }
+.hp-links a:hover { background: var(--button-hover-bg, #609ab6); }
+
+.hp-h2 { margin: 22px 0 8px; font-size: 16px; }
+.hp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.hp-table th, .hp-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--hairline-color, #e5e5e5); vertical-align: top; }
+.hp-table td { overflow-wrap: anywhere; }
+.hp-nowrap { white-space: nowrap; }
+.hp-empty { color: #1f8a3b; font-weight: 600; }
