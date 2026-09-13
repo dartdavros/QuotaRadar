@@ -1,9 +1,23 @@
 /* Health panel on the admin index. Uses the admin's own colour tokens so light and dark themes both work. */
 
-/* Django's dashboard.css pins the index content to 600px; the panel needs the full width,
-   while the app list below it keeps Django's own 600px column. */
+/* Index layout: the app menu is a narrow left column, the health panel takes the rest.
+   Django's dashboard.css pins #content to 600px, so that is lifted here. */
 .dashboard #content { width: auto; flex: 1 1 auto; min-width: 0; }
-.dashboard #content-main { float: none; width: 600px; max-width: 100%; }
+.dashboard #content-main { float: none; width: auto; }
+.qr-index { display: flex; align-items: flex-start; gap: 28px; }
+.qr-index-menu { flex: 0 0 300px; min-width: 0; }
+.qr-index-menu .module { margin-bottom: 14px; }
+.qr-index-menu .module table { table-layout: auto; }
+.qr-index-menu .module caption { font-size: 11px; padding: 6px 10px; }
+.qr-index-menu .module th, .qr-index-menu .module td { padding: 6px 8px; font-size: 12.5px; }
+.qr-index-menu .module th { overflow-wrap: normal; word-break: normal; hyphens: none; }
+.qr-index-menu .module td { white-space: nowrap; width: 1%; }
+.qr-index-menu .module .addlink, .qr-index-menu .module .changelink, .qr-index-menu .module .viewlink { font-size: 11px; }
+.qr-index-panel { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 1100px) {
+  .qr-index { flex-direction: column-reverse; }
+  .qr-index-menu { flex: none; width: 100%; max-width: 600px; }
+}
 
 .hp {
   --hp-ok: #15803d;   --hp-ok-bg: rgba(21, 128, 61, .10);

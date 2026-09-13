@@ -2,6 +2,8 @@
 {% block coltype %}colM{% endblock %}
 {% block sidebar %}{% endblock %}
 {% block content %}
-{% include "admin/monitoring/dashboard.html" with dashboard=dashboard %}
-{{ block.super }}
+<div class="qr-index">
+  <div class="qr-index-menu">{{ block.super }}</div>
+  <div class="qr-index-panel">{% include "admin/monitoring/dashboard.html" with dashboard=dashboard %}</div>
+</div>
 {% endblock %}
