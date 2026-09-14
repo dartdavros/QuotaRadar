@@ -16,6 +16,7 @@ from apps.configuration.models import SystemConfiguration
 from apps.monitoring.events import record_monitoring_event
 from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
 
+from .freshness import stale
 from .models import Delivery, DeliveryStatus, DeliveryTarget
 
 TELEGRAM_MESSAGE_LIMIT = 4096
@@ -106,6 +107,17 @@ def queue_analysis_deliveries(analysis_id: int) -> QueuedDeliveries:
     if analysis.is_relevant is not True:
         return QueuedDeliveries(analysis_id=analysis_id, delivery_ids=())
     if analysis.delivery_fanout_completed_at is not None:
+        return QueuedDeliveries(analysis_id=analysis_id, delivery_ids=())
+    if stale(analysis.source_post.published_at, timezone.now()):
+        # Backlog from a bootstrap or an outage: no delivery row is created, so nothing can ever send it.
+        analysis.delivery_fanout_completed_at = timezone.now()
+        analysis.save(update_fields=("delivery_fanout_completed_at", "updated_at"))
+        record_monitoring_event(
+            component=MonitoringComponent.TELEGRAM,
+            status=MonitoringEventStatus.SUCCESS,
+            source=analysis.source_post.source,
+            message=f"Анализ {analysis.pk} не отправлен: пост старше 30 минут.",
+        )
         return QueuedDeliveries(analysis_id=analysis_id, delivery_ids=())
 
     queued_ids: list[int] = []

@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.configuration.models import SystemConfiguration
 from apps.telegram.models import (
@@ -43,7 +44,7 @@ class DeliveryServiceTests(TestCase):
         self.assertIn("Опубликовано: 20 июля 2026, 10:00 UTC", message)
 
     def test_fan_out_creates_one_task_per_enabled_target(self) -> None:
-        analysis = create_relevant_analysis()
+        analysis = create_relevant_analysis(published_at=timezone.now())
         active_channel = DeliveryTarget.objects.create(
             target_type=DeliveryTargetType.CHANNEL,
             telegram_chat_id="@quota_radar",
@@ -75,8 +76,20 @@ class DeliveryServiceTests(TestCase):
             },
         )
 
+    def test_stale_post_never_gets_a_delivery_row(self) -> None:
+        analysis = create_relevant_analysis(external_id="5009")  # fixed 2026-07-20 publish date: far older than 30 minutes
+        DeliveryTarget.objects.create(target_type=DeliveryTargetType.CHANNEL, telegram_chat_id="@quota_stale")
+        with patch("apps.telegram.tasks.deliver_analysis.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                queued = queue_analysis_deliveries(analysis.pk)
+        self.assertEqual(queued.delivery_ids, ())
+        self.assertEqual(Delivery.objects.count(), 0)
+        delay.assert_not_called()
+        analysis.refresh_from_db()
+        self.assertIsNotNone(analysis.delivery_fanout_completed_at)
+
     def test_permanently_failed_delivery_is_not_queued_again(self) -> None:
-        analysis = create_relevant_analysis(external_id="5002")
+        analysis = create_relevant_analysis(published_at=timezone.now(), external_id="5002")
         target = DeliveryTarget.objects.create(
             target_type=DeliveryTargetType.CHANNEL,
             telegram_chat_id="@quota_retry",
@@ -96,7 +109,7 @@ class DeliveryServiceTests(TestCase):
         delay.assert_not_called()
 
     def test_broker_publish_failure_is_recorded_without_raising(self) -> None:
-        analysis = create_relevant_analysis(external_id="5003")
+        analysis = create_relevant_analysis(published_at=timezone.now(), external_id="5003")
         target = DeliveryTarget.objects.create(
             target_type=DeliveryTargetType.CHANNEL,
             telegram_chat_id="@quota_broker",
@@ -116,7 +129,7 @@ class DeliveryServiceTests(TestCase):
 
 class DeliveryRequeueServiceTests(TestCase):
     def setUp(self) -> None:
-        self.analysis = create_relevant_analysis(external_id="requeue-5001")
+        self.analysis = create_relevant_analysis(published_at=timezone.now(), external_id="requeue-5001")
         self.target = DeliveryTarget.objects.create(
             target_type=DeliveryTargetType.CHANNEL,
             telegram_chat_id="@quota_requeue",

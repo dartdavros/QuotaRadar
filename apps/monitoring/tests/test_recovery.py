@@ -91,7 +91,7 @@ class RecoveryTests(TestCase):
         )
 
     def test_recreates_missing_delivery_fanout(self) -> None:
-        analysis = create_relevant_analysis(external_id="7050")
+        analysis = create_relevant_analysis(external_id="7050", published_at=timezone.now())
         target = DeliveryTarget.objects.create(
             target_type=DeliveryTargetType.CHANNEL,
             telegram_chat_id="@quota_missing_fanout",
