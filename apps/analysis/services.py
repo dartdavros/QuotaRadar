@@ -10,7 +10,7 @@ from apps.configuration.models import SystemConfiguration
 from apps.sources.models import SourcePost, SourcePostProcessingStatus
 
 from .llm import LlmAnalysisResponse
-from .models import Analysis
+from .models import Analysis, AnalysisEventType
 from .quality import expected_product
 
 
@@ -79,6 +79,55 @@ def save_successful_analysis(
         update_fields=("processing_status", "processing_started_at", "last_error")
     )
     return PersistedAnalysis(analysis=analysis, created=created)
+
+
+@transaction.atomic
+def save_fallback_analysis(
+    *,
+    source_post_id: int,
+    configuration: SystemConfiguration,
+    title: str,
+) -> Analysis:
+    """Persist the keyword warning as the post's analysis so it is delivered once."""
+
+    source_post = (
+        SourcePost.objects.select_for_update()
+        .select_related("source")
+        .get(pk=source_post_id)
+    )
+    existing = Analysis.objects.filter(source_post=source_post).first()
+    if existing is not None and existing.is_successful:
+        return existing
+
+    values = {
+        "is_relevant": True,
+        "event_type": AnalysisEventType.QUOTA_RESET,
+        "provider": source_post.source.provider,
+        "product": expected_product(source_post.source.provider),
+        "title_ru": title,
+        "message_ru": "",
+        "is_fallback": True,
+        "model": configuration.llm_model or "unconfigured",
+        "prompt_version": configuration.active_prompt.version,
+        "raw_response": None,
+        "error": "",
+    }
+    if existing is None:
+        analysis = Analysis(source_post=source_post, **values)
+    else:
+        analysis = existing
+        for field, value in values.items():
+            setattr(analysis, field, value)
+    analysis.full_clean()
+    analysis.save()
+
+    source_post.processing_status = SourcePostProcessingStatus.ANALYZED_RELEVANT
+    source_post.processing_started_at = None
+    source_post.last_error = ""
+    source_post.save(
+        update_fields=("processing_status", "processing_started_at", "last_error")
+    )
+    return analysis
 
 
 @transaction.atomic

@@ -58,6 +58,8 @@ class DeliveryDispatchResult:
 def format_delivery_message(analysis: Analysis) -> str:
     if analysis.is_relevant is not True:
         raise DeliveryMessageError("Only relevant analyses can be delivered.")
+    if analysis.is_fallback:
+        return _format_fallback_message(analysis)
     title = analysis.title_ru.strip()
     message = analysis.message_ru.strip()
     source_url = analysis.source_post.source_url.strip()
@@ -76,6 +78,16 @@ def format_delivery_message(analysis: Analysis) -> str:
     if len(payload) > TELEGRAM_MESSAGE_LIMIT:
         raise DeliveryMessageError("Telegram message exceeds 4096 characters.")
     return payload
+
+
+def _format_fallback_message(analysis: Analysis) -> str:
+    """The LLM was down: the agent, the suspicion and the post, nothing invented."""
+
+    title = analysis.title_ru.strip()
+    source_url = analysis.source_post.source_url.strip()
+    if not title or not source_url:
+        raise DeliveryMessageError("Keyword warning is missing delivery content.")
+    return f"{title}\n{source_url}"
 
 
 def _format_publication_date(value: datetime, timezone_name: str) -> str:

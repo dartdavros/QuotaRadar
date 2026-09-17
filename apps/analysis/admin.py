@@ -11,6 +11,7 @@ class AnalysisAdmin(admin.ModelAdmin):
     list_display = (
         "source_post",
         "is_relevant",
+        "is_fallback",
         "event_type",
         "provider",
         "product",
@@ -22,6 +23,7 @@ class AnalysisAdmin(admin.ModelAdmin):
     )
     list_filter = (
         "is_relevant",
+        "is_fallback",
         "event_type",
         "provider",
         "product",
@@ -41,6 +43,7 @@ class AnalysisAdmin(admin.ModelAdmin):
         "source_post",
         "source_link",
         "is_relevant",
+        "is_fallback",
         "event_type",
         "provider",
         "product",

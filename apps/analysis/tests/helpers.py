@@ -19,6 +19,7 @@ def make_source_post(
     external_id: str = "9001",
     provider: str = SourceProvider.OPENAI,
     normalized_text: str = "Weekly Codex limits are 50% higher.",
+    published_at: datetime | None = None,
 ) -> SourcePost:
     username = "OpenAIDevs" if provider == SourceProvider.OPENAI else "ClaudeDevs"
     source = Source.objects.get(username=username)
@@ -28,6 +29,6 @@ def make_source_post(
         text=normalized_text,
         normalized_text=normalized_text,
         source_url=f"https://x.com/{username}/status/{external_id}",
-        published_at=datetime(2026, 7, 20, 10, 0, tzinfo=timezone.utc),
+        published_at=published_at or datetime(2026, 7, 20, 10, 0, tzinfo=timezone.utc),
         raw_data={"post": {"id": external_id}},
     )

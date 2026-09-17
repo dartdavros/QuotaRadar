@@ -14,28 +14,16 @@ from apps.sources.models import SourcePost, SourcePostProcessingStatus
 from apps.sources.routing import accepts_quota
 from apps.telegram.services import queue_analysis_deliveries
 
-from .llm import (
-    LlmAuthenticationError,
-    LlmConfigurationError,
-    LlmForbiddenError,
-    LlmResponseError,
-    LlmStructuredOutputError,
-    LlmTemporaryError,
-    create_llm_client,
-)
+from .availability import record_llm_failure, record_llm_success
+from .fallback import deliver_without_llm
+from .failures import permanent_failure, retry_or_fail, task_id
+from .llm import LlmError, LlmTemporaryError, create_llm_client
 from .locks import source_post_analysis_lock
-from .models import Analysis
 from .prompts import PromptConfigurationError, render_prompt
 from .quality import AnalysisQualityError, validate_payload_for_post
-from .services import (
-    find_successful_analysis,
-    save_failed_analysis,
-    save_successful_analysis,
-)
+from .services import find_successful_analysis, save_successful_analysis
 
 logger = logging.getLogger(__name__)
-_BASE_RETRY_SECONDS = 30
-_MAX_RETRY_SECONDS = 900
 
 
 @shared_task(bind=True, name="analysis.analyze_post")
@@ -52,7 +40,7 @@ def analyze_post(self: Task, source_post_id: int) -> dict[str, int | str | bool]
 
     context = {
         "event": "analysis.started",
-        "task_id": _task_id(self),
+        "task_id": task_id(self),
         "source_id": source_post.source_id,
         "x_post_id": source_post.external_id,
     }
@@ -115,11 +103,31 @@ def _analyze_locked(
                 system_prompt=prompt.system_prompt,
                 user_prompt=prompt.user_prompt,
             )
+        record_llm_success()
         raw_response = response.raw_response
         validate_payload_for_post(payload=response.payload, source_post=source_post)
-    except LlmStructuredOutputError as exc:
-        raw_response = exc.raw_response
-        return _retry_or_fail(
+    except LlmError as exc:
+        # Any LLM failure counts: timeout, 429, 5xx, rejected key, dead proxy,
+        # unusable answer. Two in a row and the post is warned about without it.
+        raw_response = getattr(exc, "raw_response", raw_response)
+        record_llm_failure()
+        fallback = deliver_without_llm(
+            source_post=source_post,
+            configuration=configuration,
+            task_id=task_id(task),
+        )
+        if fallback is not None:
+            return fallback
+        if isinstance(exc, LlmTemporaryError):
+            return retry_or_fail(
+                task=task,
+                source_post=source_post,
+                configuration=configuration,
+                exc=exc,
+                raw_response=raw_response,
+                context=context,
+            )
+        return permanent_failure(
             task=task,
             source_post=source_post,
             configuration=configuration,
@@ -127,8 +135,8 @@ def _analyze_locked(
             raw_response=raw_response,
             context=context,
         )
-    except (LlmTemporaryError, AnalysisQualityError) as exc:
-        return _retry_or_fail(
+    except AnalysisQualityError as exc:
+        return retry_or_fail(
             task=task,
             source_post=source_post,
             configuration=configuration,
@@ -136,32 +144,15 @@ def _analyze_locked(
             raw_response=raw_response,
             context=context,
         )
-    except _PERMANENT_ANALYSIS_ERRORS as exc:
-        analysis = save_failed_analysis(
-            source_post_id=source_post.pk,
+    except PromptConfigurationError as exc:
+        return permanent_failure(
+            task=task,
+            source_post=source_post,
             configuration=configuration,
-            error=str(exc),
+            exc=exc,
             raw_response=raw_response,
+            context=context,
         )
-        logger.error(
-            "Post analysis failed permanently.",
-            extra={
-                **context,
-                "event": "analysis.failed",
-                "analysis_id": analysis.pk,
-                "status": "failed",
-                "error_type": type(exc).__name__,
-            },
-        )
-        record_monitoring_event(
-            component=MonitoringComponent.AI,
-            status=MonitoringEventStatus.ERROR,
-            source=source_post.source,
-            message=f"Ошибка анализа поста {source_post.external_id}: {exc}",
-            error_type=type(exc).__name__,
-            task_id=_task_id(task),
-        )
-        return _failure_result(source_post_id=source_post.pk, analysis=analysis)
 
     persisted = save_successful_analysis(
         source_post_id=source_post.pk,
@@ -188,7 +179,7 @@ def _analyze_locked(
         status=MonitoringEventStatus.SUCCESS,
         source=source_post.source,
         message=f"Пост {source_post.external_id} проанализирован: {relevance}.",
-        task_id=_task_id(task),
+        task_id=task_id(task),
     )
     return {
         "status": status,
@@ -197,100 +188,3 @@ def _analyze_locked(
         "is_relevant": bool(persisted.analysis.is_relevant),
         "queued_deliveries": queued_deliveries,
     }
-
-
-_PERMANENT_ANALYSIS_ERRORS = (
-    LlmConfigurationError,
-    LlmAuthenticationError,
-    LlmForbiddenError,
-    LlmResponseError,
-    PromptConfigurationError,
-)
-
-
-def _retry_or_fail(
-    *,
-    task: Task,
-    source_post: SourcePost,
-    configuration: SystemConfiguration,
-    exc: Exception,
-    raw_response: object | None,
-    context: dict[str, object],
-) -> dict[str, int | str]:
-    retries = getattr(task.request, "retries", 0)
-    if retries < configuration.retry_count:
-        countdown = min(_BASE_RETRY_SECONDS * (2**retries), _MAX_RETRY_SECONDS)
-        record_monitoring_event(
-            component=MonitoringComponent.AI,
-            status=MonitoringEventStatus.ERROR,
-            source=source_post.source,
-            message=(
-                f"Временная ошибка анализа поста {source_post.external_id}: {exc}. "
-                f"Повтор через {countdown} сек."
-            ),
-            error_type=type(exc).__name__,
-            task_id=_task_id(task),
-        )
-        logger.warning(
-            "Temporary or invalid LLM response; retry scheduled.",
-            extra={
-                **context,
-                "event": "analysis.retry_scheduled",
-                "status": "retry",
-                "error_type": type(exc).__name__,
-            },
-        )
-        raise task.retry(
-            exc=exc,
-            countdown=countdown,
-            max_retries=configuration.retry_count,
-        )
-
-    analysis = save_failed_analysis(
-        source_post_id=source_post.pk,
-        configuration=configuration,
-        error=str(exc),
-        raw_response=raw_response,
-    )
-    logger.error(
-        "Post analysis retries exhausted.",
-        extra={
-            **context,
-            "event": "analysis.retries_exhausted",
-            "analysis_id": analysis.pk,
-            "status": "failed",
-            "error_type": type(exc).__name__,
-        },
-    )
-    record_monitoring_event(
-        component=MonitoringComponent.AI,
-        status=MonitoringEventStatus.ERROR,
-        source=source_post.source,
-        message=f"Ошибка анализа поста {source_post.external_id}: {exc}",
-        error_type=type(exc).__name__,
-        task_id=_task_id(task),
-    )
-    return _failure_result(source_post_id=source_post.pk, analysis=analysis)
-
-
-def _failure_result(
-    *,
-    source_post_id: int,
-    analysis: Analysis,
-) -> dict[str, int | str | bool]:
-    if analysis.is_successful:
-        return {
-            "status": "already_analyzed",
-            "source_post_id": source_post_id,
-            "analysis_id": analysis.pk,
-            "is_relevant": bool(analysis.is_relevant),
-        }
-    return {
-        "status": "failed",
-        "source_post_id": source_post_id,
-        "analysis_id": analysis.pk,
-    }
-
-
-def _task_id(task: Task) -> str:
-    return str(getattr(task.request, "id", "") or "")

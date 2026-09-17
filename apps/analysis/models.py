@@ -52,6 +52,11 @@ class Analysis(models.Model):
     )
     title_ru = models.CharField("Заголовок на русском", max_length=255, blank=True)
     message_ru = models.TextField("Сообщение на русском", blank=True)
+    is_fallback = models.BooleanField(
+        "Предупреждение по ключевому слову",
+        default=False,
+        help_text="Отправлено без LLM, потому что она была недоступна.",
+    )
     model = models.CharField("Модель", max_length=200)
     prompt_version = models.PositiveIntegerField("Версия промпта")
     raw_response = models.JSONField("Raw response", null=True, blank=True)
@@ -81,7 +86,7 @@ class Analysis(models.Model):
                 errors["event_type"] = "Для релевантного события нужен тип события."
             if not self.title_ru.strip():
                 errors["title_ru"] = "Для релевантного события нужен заголовок."
-            if not self.message_ru.strip():
+            if not self.message_ru.strip() and not self.is_fallback:
                 errors["message_ru"] = "Для релевантного события нужен текст."
             if errors:
                 raise ValidationError(errors)

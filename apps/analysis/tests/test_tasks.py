@@ -1,8 +1,16 @@
 from contextlib import contextmanager
 from unittest.mock import Mock, patch
 
+from django.conf import settings
 from django.test import TestCase
+from django.utils import timezone
+from redis import Redis
 
+from apps.analysis.availability import (
+    CONSECUTIVE_FAILURES_KEY,
+    llm_unavailable,
+    record_llm_failure,
+)
 from apps.analysis.llm import (
     LlmAnalysisResponse,
     LlmStructuredOutputError,
@@ -173,3 +181,106 @@ class AnalyzePostTaskTests(TestCase):
         self.assertEqual(retry.call_args.kwargs["countdown"], 30)
         self.assertEqual(retry.call_args.kwargs["max_retries"], 2)
         self.assertFalse(Analysis.objects.exists())
+
+
+@patch("apps.analysis.tasks.source_post_analysis_lock", acquired_lock)
+class AnalyzePostFallbackTests(TestCase):
+    """Two consecutive LLM failures: the post is warned about without the LLM."""
+
+    def setUp(self) -> None:
+        self.configuration = SystemConfiguration.load()
+        self.configuration.llm_provider = "openai_compatible"
+        self.configuration.llm_base_url = "https://llm.example/api/v1"
+        self.configuration.llm_model = "test-model"
+        self.configuration.retry_count = 5
+        self.configuration.save()
+        self.addCleanup(self._clear_counter)
+        self._clear_counter()
+        self.post = make_source_post(
+            external_id="9201",
+            normalized_text="We just reset Codex limits for everyone.",
+            published_at=timezone.now(),
+        )
+
+    @staticmethod
+    def _clear_counter() -> None:
+        client = Redis.from_url(settings.REDIS_URL, decode_responses=False)
+        try:
+            client.delete(CONSECUTIVE_FAILURES_KEY)
+        finally:
+            client.close()
+
+    @patch("apps.analysis.tasks.queue_analysis_deliveries")
+    @patch("apps.analysis.tasks.create_llm_client")
+    def test_second_consecutive_failure_sends_the_keyword_warning(
+        self,
+        create_client: Mock,
+        _task_queue: Mock,
+    ) -> None:
+        create_client.side_effect = LlmTemporaryError("LLM request failed.")
+
+        with patch(
+            "apps.telegram.services._dispatch_deliveries",
+            return_value=None,
+        ):
+            with patch.object(
+                analyze_post,
+                "retry",
+                side_effect=RuntimeError("retry requested"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "retry requested"):
+                    analyze_post.run(self.post.pk)
+            result = analyze_post.run(self.post.pk)
+
+        self.assertEqual(result["status"], "fallback")
+        analysis = Analysis.objects.get(source_post=self.post)
+        self.assertTrue(analysis.is_fallback)
+        self.assertEqual(analysis.title_ru, "Codex: возможный сброс лимитов")
+
+    @patch("apps.analysis.tasks.queue_analysis_deliveries")
+    @patch("apps.analysis.tasks.create_llm_client")
+    def test_first_failure_still_retries(
+        self,
+        create_client: Mock,
+        _task_queue: Mock,
+    ) -> None:
+        create_client.side_effect = LlmTemporaryError("LLM request failed.")
+
+        with patch.object(
+            analyze_post,
+            "retry",
+            side_effect=RuntimeError("retry requested"),
+        ) as retry:
+            with self.assertRaisesRegex(RuntimeError, "retry requested"):
+                analyze_post.run(self.post.pk)
+
+        retry.assert_called_once()
+        self.assertFalse(Analysis.objects.filter(is_fallback=True).exists())
+
+    @patch("apps.analysis.tasks.queue_analysis_deliveries")
+    @patch("apps.analysis.tasks.create_llm_client")
+    def test_a_success_between_failures_resets_the_counter(
+        self,
+        create_client: Mock,
+        _task_queue: Mock,
+    ) -> None:
+        record_llm_failure()
+        client = Mock()
+        client.analyze.return_value = LlmAnalysisResponse(
+            payload=AnalysisPayload.model_validate(
+                {
+                    "is_relevant": False,
+                    "event_type": None,
+                    "provider": "openai",
+                    "product": "codex",
+                    "title_ru": None,
+                    "message_ru": None,
+                }
+            ),
+            raw_response={"id": "completion"},
+        )
+        create_client.return_value.__enter__.return_value = client
+
+        analyze_post.run(self.post.pk)
+
+        self.assertFalse(llm_unavailable())
