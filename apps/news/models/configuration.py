@@ -25,7 +25,7 @@ class NewsConfiguration(models.Model):
     timezone = models.CharField("Часовой пояс публикаций", max_length=64, default="Europe/Moscow")
     windows = models.JSONField("Окна публикаций (минуты с начала суток)", default=default_windows)
     daily_limit = models.PositiveSmallIntegerField("Максимум публикаций в сутки", default=3,
-        validators=[MinValueValidator(1), MaxValueValidator(3)])
+        validators=[MinValueValidator(1), MaxValueValidator(20)])
     min_score = models.PositiveSmallIntegerField("Минимальная оценка", default=70,
         validators=[MinValueValidator(0), MaxValueValidator(100)])
     expiry_hours = models.PositiveSmallIntegerField("Актуальность новости, часов", default=36,
