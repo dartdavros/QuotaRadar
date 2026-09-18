@@ -20,7 +20,7 @@ def reserve_day(publication, config, now=None):
     used = NewsPublication.objects.filter(
         target_id=publication.target_id, slot_date=local.date(), status__in=ACTIVE,
     ).exclude(pk=publication.pk).count()
-    if used >= min(config.daily_limit, 3):
+    if used >= config.daily_limit:
         return False
     publication.slot_date = local.date()
     return True

@@ -114,14 +114,17 @@ class NewsPolicyTests(TestCase):
         self.assertIsNone(paused.next_attempt_at)
         self.assertIsNotNone(other.next_attempt_at)
 
-    def test_urgent_selection_still_stops_at_three(self):
-        for n in range(4):
+    def test_urgent_selection_stops_at_configured_daily_limit(self):
+        self.config.daily_limit = 4
+        self.config.save()
+        for n in range(5):
             self.event(n)
         self.assertIsNotNone(select_publication())
         self.assertIsNotNone(select_publication())
         self.assertIsNotNone(select_publication())
+        self.assertIsNotNone(select_publication())
         self.assertIsNone(select_publication())
-        self.assertEqual(NewsPublication.objects.count(), 3)
+        self.assertEqual(NewsPublication.objects.count(), 4)
 
     def test_unknown_delivery_consumes_slot_and_cannot_auto_retry(self):
         for n in range(3):
@@ -210,12 +213,26 @@ class NewsPolicyTests(TestCase):
         publication.refresh_from_db()
         self.assertEqual(publication.status, "ready")
 
-    def test_news_cannot_target_private_chat_or_exceed_daily_cap(self):
-        self.config.daily_limit = 4
+    def test_news_cannot_target_private_chat_or_exceed_configured_daily_cap(self):
+        self.config.daily_limit = 20
+        self.config.full_clean()
+        self.config.daily_limit = 21
         with self.assertRaises(ValidationError):
             self.config.full_clean()
         with self.assertRaises(ValidationError):
             DeliveryTarget(target_type="private_chat", feed="news", telegram_chat_id="123").full_clean()
+
+    def test_windows_accept_seconds_up_to_configured_maximum(self):
+        self.config.daily_limit = 7
+        self.config.windows = [32400, 41040, 49680, 58320, 66960, 75600]
+        self.config.save()
+        self.config.refresh_from_db()
+        self.assertEqual(self.config.windows, [540, 684, 828, 972, 1116, 1260])
+        self.config.windows = list(range(20))
+        self.config.full_clean()
+        self.config.windows.append(20)
+        with self.assertRaises(ValidationError):
+            self.config.full_clean()
 
 class TransportPolicyTests(SimpleTestCase):
     def test_receipt_requires_all_album_message_ids(self):

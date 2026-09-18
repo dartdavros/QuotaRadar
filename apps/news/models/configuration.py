@@ -52,10 +52,18 @@ class NewsConfiguration(models.Model):
             ZoneInfo(self.timezone)
         except (ZoneInfoNotFoundError, ValueError, TypeError):
             raise ValidationError({"timezone": "Укажите корректный часовой пояс IANA."}) from None
-        if (not isinstance(self.windows, list) or not self.windows or len(self.windows) > 3
-                or any(type(w) is not int or not 0 <= w < 1440 for w in self.windows)
-                or len(set(self.windows)) != len(self.windows)):
-            raise ValidationError({"windows": "Задайте до трёх разных минут суток: [720, 1140, 1290]."})
+        if not isinstance(self.windows, list) or not self.windows:
+            raise ValidationError({"windows": "Задайте разные минуты суток: [720, 1140, 1290]."})
+        if all(type(window) is int and 0 <= window < 1440 for window in self.windows):
+            windows = self.windows
+        elif all(type(window) is int and 0 <= window < 86400 and window % 60 == 0
+                 for window in self.windows):
+            windows = [window // 60 for window in self.windows]
+        else:
+            raise ValidationError({"windows": "Задайте разные минуты суток: [720, 1140, 1290]."})
+        if len(windows) > 20 or len(set(windows)) != len(windows):
+            raise ValidationError({"windows": "Задайте до 20 разных минут суток: [720, 1140, 1290]."})
+        self.windows = windows
         if self.target_id and (self.target.feed != Feed.NEWS or self.target.target_type != "channel"):
             raise ValidationError({"target": "Выберите канал направления «Новости»."})
         if self.publishing_enabled and (not self.target_id or not self.target.enabled):
