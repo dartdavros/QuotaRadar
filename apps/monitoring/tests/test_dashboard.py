@@ -13,7 +13,8 @@ from apps.monitoring.events import record_monitoring_event
 from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
 from apps.news.models import CollectionCheckpoint, NewsConfiguration, NewsEvent, XBudgetPeriod
 from apps.sources.models import Feed, Source, SourcePost
-from apps.telegram.models import DeliveryTarget
+from apps.telegram.models import Delivery, DeliveryStatus, DeliveryTarget
+from apps.telegram.tests.helpers import create_relevant_analysis
 from tests._otp import force_login_verified
 
 WORKERS = {"celery@web": "pong", "news-default@web": "pong", "news-urgent@web": "pong"}
@@ -72,6 +73,18 @@ class HealthPanelTests(TestCase):
         self.assertIn("news-worker", workers.summary)
         self.assertEqual(dashboard.errors[0].error_type, "TelegramPermanentChatError")
         self.assertIn("chat not found", by_title(dashboard, "Telegram (лимиты)").last_error)
+
+    def test_private_chat_rejection_is_not_a_delivery_error(self, _ping):
+        analysis = create_relevant_analysis(published_at=self.now)
+        left = DeliveryTarget.objects.create(target_type="private_chat", feed=Feed.QUOTA, telegram_chat_id="2",
+                                             enabled=False)
+        Delivery.objects.create(analysis=analysis, target=left, status=DeliveryStatus.FAILED, last_error="blocked")
+        self.assertEqual(by_title(build_dashboard(), "Telegram (лимиты)").level, OK)
+        active = DeliveryTarget.objects.get(telegram_chat_id="1")
+        Delivery.objects.create(analysis=analysis, target=active, status=DeliveryStatus.FAILED, last_error="stale")
+        check = by_title(build_dashboard(), "Telegram (лимиты)")
+        self.assertEqual(check.level, ERROR)
+        self.assertIn("Неотправленных за сутки: 1", check.summary)
 
     def test_news_budget_follows_the_setting_not_the_frozen_week(self, _ping):
         news = NewsConfiguration.load()

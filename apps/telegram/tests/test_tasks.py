@@ -161,12 +161,23 @@ class DeliverAnalysisTaskTests(TestCase):
         self.assertEqual(result["status"], "failed")
         self.target.refresh_from_db()
         self.assertFalse(self.target.enabled)
-        event = MonitoringEvent.objects.get(
-            component=MonitoringComponent.TELEGRAM,
-            status=MonitoringEventStatus.ERROR,
-            source=self.analysis.source_post.source,
+        self.assertFalse(
+            MonitoringEvent.objects.filter(status=MonitoringEventStatus.ERROR).exists()
         )
-        self.assertEqual(event.error_type, "TelegramPermanentChatError")
+
+    @patch("apps.telegram.tasks.delivery_send_lock", acquired_lock)
+    @patch("apps.telegram.tasks.TelegramBotApiClient")
+    def test_disabled_private_chat_is_not_an_error(self, client_class: Mock) -> None:
+        self.target.enabled = False
+        self.target.save()
+
+        result = deliver_analysis.run(self.analysis.pk, self.target.pk)
+
+        self.assertEqual(result["status"], "disabled")
+        client_class.assert_not_called()
+        self.assertFalse(
+            MonitoringEvent.objects.filter(status=MonitoringEventStatus.ERROR).exists()
+        )
 
     @patch("apps.telegram.tasks.delivery_send_lock", acquired_lock)
     @patch("apps.telegram.tasks.TelegramBotApiClient")
@@ -186,3 +197,9 @@ class DeliverAnalysisTaskTests(TestCase):
 
         self.target.refresh_from_db()
         self.assertTrue(self.target.enabled)
+        event = MonitoringEvent.objects.get(
+            component=MonitoringComponent.TELEGRAM,
+            status=MonitoringEventStatus.ERROR,
+            source=self.analysis.source_post.source,
+        )
+        self.assertEqual(event.error_type, "TelegramPermanentChatError")

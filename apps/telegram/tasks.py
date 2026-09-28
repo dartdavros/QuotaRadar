@@ -97,6 +97,8 @@ def _deliver_locked(
         return _result("retry_scheduled", delivery)
     if not delivery.target.enabled or delivery.target.feed != Feed.QUOTA:
         mark_failed(delivery.pk, "Delivery target is disabled.")
+        if delivery.target.is_private_chat:
+            return _result("disabled", delivery)
         record_monitoring_event(
             component=MonitoringComponent.TELEGRAM,
             status=MonitoringEventStatus.ERROR,
@@ -143,6 +145,12 @@ def _deliver_locked(
         return _retry_or_fail(task=task, delivery=delivery, exc=exc, context=context)
     except TelegramPermanentChatError as exc:
         mark_permanent_chat_failure(delivery.pk, str(exc))
+        if delivery.target.is_private_chat:
+            logger.info(
+                "Private chat rejected the delivery; subscription disabled.",
+                extra={**context, "event": "telegram.subscriber_unreachable", "status": "failed"},
+            )
+            return _result("failed", delivery)
         logger.error(
             "Telegram chat rejected the delivery.",
             extra={

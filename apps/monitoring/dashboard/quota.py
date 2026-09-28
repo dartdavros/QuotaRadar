@@ -10,7 +10,7 @@ from apps.analysis.models import Analysis
 from apps.monitoring.models import MonitoringComponent, MonitoringEvent, MonitoringEventStatus
 from apps.sources.models import Feed, Source, SourcePost, SourcePostProcessingStatus
 from apps.sources.routing import quota_sources
-from apps.telegram.models import Delivery, DeliveryStatus, DeliveryTarget
+from apps.telegram.models import Delivery, DeliveryStatus, DeliveryTarget, DeliveryTargetType
 
 from .report import ERROR, OFF, WARN, Check, admin_link, age, minutes, short
 
@@ -106,7 +106,9 @@ def check_telegram_quota(config, now) -> Check:
     deliveries = Delivery.objects.filter(target__feed=Feed.QUOTA)
     check.last_success = age(deliveries.filter(status=DeliveryStatus.SENT).aggregate(m=Max("sent_at"))["m"], now)
     day = now - timedelta(hours=24)
-    failed = deliveries.filter(status=DeliveryStatus.FAILED, updated_at__gte=day)
+    # A private chat that blocked the bot is switched off: that is a subscriber leaving, not a delivery failure.
+    failed = deliveries.filter(status=DeliveryStatus.FAILED, updated_at__gte=day).exclude(
+        target__target_type=DeliveryTargetType.PRIVATE_CHAT, target__enabled=False)
     if failed.exists():
         latest = failed.order_by("-updated_at").first()
         check.fail(ERROR, f"Неотправленных за сутки: {failed.count()}. Последняя причина: {short(latest.last_error, 160)}")

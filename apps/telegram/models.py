@@ -54,6 +54,10 @@ class DeliveryTarget(models.Model):
             )
         ]
 
+    @property
+    def is_private_chat(self) -> bool:
+        return self.target_type == DeliveryTargetType.PRIVATE_CHAT
+
     def clean(self) -> None:
         super().clean()
         chat_id = self.telegram_chat_id.strip()

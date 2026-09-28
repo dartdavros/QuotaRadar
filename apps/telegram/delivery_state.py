@@ -7,7 +7,7 @@ from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Delivery, DeliveryStatus, DeliveryTargetType
+from .models import Delivery, DeliveryStatus
 
 
 def increment_attempts(delivery_id: int) -> None:
@@ -79,6 +79,6 @@ def mark_permanent_chat_failure(delivery_id: int, error: str) -> None:
         delivery.save(
             update_fields=("status", "last_error", "next_attempt_at", "updated_at")
         )
-        if delivery.target.target_type == DeliveryTargetType.PRIVATE_CHAT:
+        if delivery.target.is_private_chat:
             delivery.target.enabled = False
             delivery.target.save(update_fields=("enabled", "updated_at"))
