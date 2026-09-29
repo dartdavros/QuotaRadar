@@ -14,17 +14,19 @@ from .base import AdvertisingTestCase
 @patch("apps.telegram.tasks.delivery_send_lock", acquired_lock)
 class AdvertisingSendingTests(AdvertisingTestCase):
     @patch("apps.telegram.tasks.TelegramBotApiClient")
-    def test_custom_emoji_rejection_uses_regular_fallback(self, client_class):
+    def test_custom_emoji_rejection_never_replaces_requested_emoji(self, client_class):
         self.campaign.body = "🤖[5397681122542893003] [**Купить**](https://example.com)"
         self.campaign.save()
         client = client_class.return_value.__enter__.return_value
-        client.send_message.side_effect = [TelegramPermanentChatError("Unsupported custom emoji"), "101"]
-        self.assertEqual(deliver_analysis.run(self.delivery.analysis_id, self.target.pk)["status"], "sent")
-        self.assertEqual(client.send_message.call_count, 2)
-        self.assertFalse(any(entity["type"] == "custom_emoji" for entity in
-                             client.send_message.call_args.kwargs["entities"]))
+        client.send_message.side_effect = TelegramPermanentChatError("Unsupported custom emoji")
+        self.assertEqual(deliver_analysis.run(self.delivery.analysis_id, self.target.pk)["status"], "failed")
+        client.send_message.assert_called_once()
+        self.assertTrue(any(entity["type"] == "custom_emoji" for entity in
+                            client.send_message.call_args.kwargs["entities"]))
         self.delivery.refresh_from_db()
-        self.assertFalse(any(entity["type"] == "custom_emoji" for entity in self.delivery.message_entities))
+        self.assertTrue(any(entity["type"] == "custom_emoji" for entity in self.delivery.message_entities))
+        self.assertEqual(self.campaign.sent_posts, 0)
+        self.assertEqual(self.campaign.reserved_posts, 0)
 
     @patch("apps.telegram.tasks.TelegramBotApiClient")
     def test_success_sends_entities_and_counts_once(self, client_class):
