@@ -8,8 +8,8 @@ from django.views.decorators.http import require_POST
 from apps.sources.models import Feed
 from apps.telegram.formatting import DeliveryMessageError, format_delivery_message
 from apps.telegram.models import Delivery, DeliveryTargetType
-from .formatting import AD_LIMIT, AD_SEPARATOR, PREFIX, utf16_length
-from .markup import render_markup
+from .formatting import AD_SEPARATOR, MESSAGE_LIMIT, PREFIX, utf16_length, validate_body
+from .models import Campaign
 
 
 @require_POST
@@ -20,15 +20,19 @@ def preview_campaign(request):
     if not body:
         return JsonResponse({"html": "", "length": 0})
     try:
-        rendered = render_markup(body)
+        campaign_id = request.POST.get("campaign", "")
+        fallbacks = {}
+        if campaign_id.isdigit():
+            fallbacks = (Campaign.objects.filter(pk=campaign_id)
+                         .values_list("emoji_fallbacks", flat=True).first() or {})
+        rendered = validate_body(body, emoji_fallbacks=fallbacks)
         length = utf16_length(PREFIX.rstrip() + "\n" + rendered.text)
-        if length > AD_LIMIT:
-            raise ValidationError("Рекламный блок превышает 200 единиц UTF-16.")
     except ValidationError as error:
         return JsonResponse({"error": "; ".join(error.messages)}, status=400)
 
     block = f"{escape(PREFIX.rstrip())}<br>{rendered.html}"
     target_id = request.POST.get("target", "")
+    post_length = None
     if target_id.isdigit():
         delivery = (Delivery.objects.filter(target_id=target_id, target__feed=Feed.QUOTA,
                                             target__target_type=DeliveryTargetType.CHANNEL,
@@ -37,8 +41,12 @@ def preview_campaign(request):
         if delivery:
             try:
                 post = format_delivery_message(delivery.analysis)
-                if utf16_length(post) + utf16_length(AD_SEPARATOR) + AD_LIMIT <= 4096:
-                    block = escape(post).replace("\n", "<br>") + "<br><br>" + block
+                post_length = utf16_length(post + AD_SEPARATOR) + length
+                block = escape(post).replace("\n", "<br>") + "<br><br>" + block
             except DeliveryMessageError:
                 pass
-    return JsonResponse({"html": block, "length": length})
+    warning = ""
+    if post_length and post_length > MESSAGE_LIMIT:
+        warning = "Этот сохранённый пост вместе с рекомендацией превышает лимит Telegram 4096. Текст не обрезан."
+    return JsonResponse({"html": block, "length": length, "post_length": post_length,
+                         "limit": MESSAGE_LIMIT, "warning": warning})

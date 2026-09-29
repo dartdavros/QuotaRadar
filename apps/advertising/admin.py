@@ -22,10 +22,11 @@ class CampaignForm(forms.ModelForm):
                 f"{self.instance.message} [**{self.instance.link_label}**]({self.instance.url})")
         self.fields["body"].required = True
         self.fields["body"].widget.attrs["data-preview-url"] = reverse("admin:advertising_campaign_preview")
+        self.fields["body"].widget.attrs["data-campaign-id"] = self.instance.pk or ""
         self.fields["body"].help_text = (
-            "Несколько строк и ссылок: [**Жирная ссылка**](https://example.com). "
-            "Код кастомного эмодзи: обычный эмодзи[ID]. "
-            "Видимый блок с «Рекомендация:» — максимум 200 единиц UTF-16.")
+            "Свободный текст: Telegram MarkdownV2 или HTML. "
+            "Также поддерживаются **жирный текст**, [**Ссылка**](https://example.com) и эмодзи [ID]. "
+            "Лимит Telegram — 4096 единиц UTF-16 на весь пост с рекомендацией после разбора разметки.")
 
 
 @admin.register(Campaign)
@@ -53,7 +54,7 @@ class CampaignAdmin(admin.ModelAdmin):
                 feed=Feed.QUOTA, target_type=DeliveryTargetType.CHANNEL)
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
-    @admin.display(description="Длина рекламного блока / 200")
+    @admin.display(description="Длина рекомендации")
     def block_length(self, obj):
         return obj.block_length
 

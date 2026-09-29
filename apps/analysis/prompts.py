@@ -46,8 +46,17 @@ def render_prompt(
         raise PromptConfigurationError("The configured prompt is empty.")
     from apps.advertising.budget import quota_message_limit
     system_prompt = prompt.system_prompt.strip()
-    if quota_message_limit() < 4096:
-        system_prompt += "\nОбщий объём title_ru и message_ru — не более 3500 единиц UTF-16. Сохрани подтверждённые факты; место для источника, даты и рекомендации добавит приложение."
+    limit = quota_message_limit()
+    if limit < 4096:
+        from apps.telegram.formatting import format_message_values
+        from apps.advertising.formatting import utf16_length
+        overhead = utf16_length(format_message_values("я", "я", source_post)) - 2
+        copy_budget = limit - overhead
+        if copy_budget < 2:
+            raise PromptConfigurationError("Active recommendation leaves no room for the quota post.")
+        system_prompt += (
+            f"\nОбщий объём title_ru и message_ru — не более {copy_budget} единиц UTF-16. "
+            "Сохрани подтверждённые факты; место для источника, даты и рекомендации добавит приложение.")
     return RenderedPrompt(
         system_prompt=system_prompt,
         user_prompt=user_prompt.strip(),

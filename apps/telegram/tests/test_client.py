@@ -61,6 +61,15 @@ class TelegramBotApiClientTests(SimpleTestCase):
         self.assertEqual(payload["chat_id"], "42")
         self.assertTrue(payload["disable_web_page_preview"])
 
+    def test_custom_emoji_lookup_does_not_send_messages(self) -> None:
+        stickers = [{"custom_emoji_id": "5397681122542893003", "emoji": "👍"}]
+        self.http_client.post.return_value = self.response(status_code=200, payload={"ok": True, "result": stickers})
+        self.assertEqual(self.client.get_custom_emoji_stickers(["5397681122542893003"]), stickers)
+        self.http_client.post.assert_called_once()
+        self.assertTrue(self.http_client.post.call_args.args[0].endswith("/getCustomEmojiStickers"))
+        self.assertEqual(self.http_client.post.call_args.kwargs["json"],
+                         {"custom_emoji_ids": ["5397681122542893003"]})
+
     def test_rate_limit_exposes_safe_retry_after(self) -> None:
         self.http_client.post.return_value = self.response(
             status_code=429,

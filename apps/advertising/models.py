@@ -23,6 +23,7 @@ HELD_STATUSES = (PlacementStatus.RESERVED, PlacementStatus.SENDING, PlacementSta
 class Campaign(models.Model):
     target = models.ForeignKey("telegram.DeliveryTarget", verbose_name="Канал", on_delete=models.PROTECT)
     body = models.TextField("Текст рекомендации", blank=True)
+    emoji_fallbacks = models.JSONField(default=dict, blank=True, editable=False)
     message = models.TextField("Текст рекламы", blank=True)
     link_label = models.CharField("Текст ссылки", max_length=200, blank=True)
     url = models.URLField("URL", max_length=2000, blank=True)
@@ -61,7 +62,8 @@ class Campaign(models.Model):
         self.message, self.link_label, self.url = self.message.strip(), self.link_label.strip(), self.url.strip()
         if self.body:
             try:
-                validate_body(self.body)
+                rendered = validate_body(self.body, emoji_fallbacks=self.emoji_fallbacks)
+                self.emoji_fallbacks = rendered.emoji_fallbacks
             except ValidationError as exc:
                 raise ValidationError({"body": exc.messages}) from None
         else:

@@ -78,10 +78,11 @@ class ReservationTests(AdvertisingTestCase):
         delivery = self.make_delivery("ads-private", private)
         self.assertEqual(prepare_delivery(delivery, "Новость"), ("Новость", []))
 
-    def test_reserve_full_allowance_and_do_not_truncate(self):
-        prepare_delivery(self.delivery, "я" * 3894)
-        with self.assertRaisesRegex(ValueError, "3894"):
-            prepare_delivery(self.make_delivery("ads-long"), "я" * 3895)
+    def test_reserve_actual_copy_and_do_not_truncate(self):
+        available = 4096 - self.campaign.block_length - 2
+        prepare_delivery(self.delivery, "я" * available)
+        with self.assertRaisesRegex(ValueError, "4096"):
+            prepare_delivery(self.make_delivery("ads-long"), "я" * (available + 1))
         self.assertEqual(Placement.objects.count(), 1)
 
     def test_total_cannot_drop_below_held_placements(self):

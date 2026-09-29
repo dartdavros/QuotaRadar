@@ -22,12 +22,20 @@ class AdvertisingAdminTests(AdvertisingTestCase):
 
     def test_over_limit_form_is_rejected_server_side(self):
         response = self.client.post(reverse("admin:advertising_campaign_change", args=[self.campaign.pk]), {
-            "target": self.target.pk, "body": "я" * 200,
+            "target": self.target.pk, "body": "я" * 4096,
             "total_posts": 2, "enabled": "on", "_save": "Сохранить"})
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "превышает 200")
+        self.assertContains(response, "4096")
         self.campaign.refresh_from_db()
         self.assertFalse(self.campaign.body)
+
+    def test_freeform_body_longer_than_200_is_saved(self):
+        body = "<b>Свободный текст</b>\n" + "Текст рекомендации. " * 30
+        response = self.client.post(reverse("admin:advertising_campaign_change", args=[self.campaign.pk]), {
+            "target": self.target.pk, "body": body, "total_posts": 2, "_save": "Сохранить"})
+        self.assertEqual(response.status_code, 302)
+        self.campaign.refresh_from_db()
+        self.assertEqual(self.campaign.body, body.strip())
 
     def test_preview_uses_real_post_and_safe_formatted_links(self):
         response = self.client.post(reverse("admin:advertising_campaign_preview"), {

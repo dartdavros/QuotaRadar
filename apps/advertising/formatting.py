@@ -3,16 +3,11 @@ import re
 
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
-from .markup import render_markup
+from .markup import render_markup, utf16_length
 
-AD_LIMIT = 200
 AD_SEPARATOR = "\n\n"
 MESSAGE_LIMIT = 4096
 PREFIX = "Рекомендация: "
-
-
-def utf16_length(text):
-    return len(text.encode("utf-16-le")) // 2
 
 
 def advertising_text(message, link_label):
@@ -21,17 +16,19 @@ def advertising_text(message, link_label):
 
 def campaign_copy(campaign):
     if campaign.body:
-        rendered = render_markup(campaign.body.strip())
+        rendered = render_markup(campaign.body.strip(), emoji_fallbacks=campaign.emoji_fallbacks)
         return PREFIX.rstrip() + "\n" + rendered.text, rendered.entities
     block = advertising_text(campaign.message, campaign.link_label)
     return block, [{"type": "text_link", "offset": utf16_length(PREFIX + campaign.message.strip() + " "),
                     "length": utf16_length(campaign.link_label.strip()), "url": campaign.url}]
 
 
-def validate_body(body):
-    block = PREFIX.rstrip() + "\n" + render_markup(body.strip()).text
-    if utf16_length(block) > AD_LIMIT:
-        raise ValidationError("Рекламный блок превышает 200 единиц UTF-16, включая «Рекомендация:».")
+def validate_body(body, *, emoji_fallbacks=None):
+    rendered = render_markup(body.strip(), emoji_fallbacks=emoji_fallbacks)
+    block = PREFIX.rstrip() + "\n" + rendered.text
+    if utf16_length(block) > MESSAGE_LIMIT:
+        raise ValidationError("Текст превышает лимит Telegram — 4096 единиц UTF-16 после разбора разметки.")
+    return rendered
 
 
 def validate_copy(message, link_label, url):
@@ -41,15 +38,14 @@ def validate_copy(message, link_label, url):
         if re.search(r"https?://|www\.", value, re.IGNORECASE):
             raise ValidationError({field: "Ссылку укажите в отдельном поле URL."})
     URLValidator(schemes=("http", "https"))(url)
-    if utf16_length(advertising_text(message, link_label)) > AD_LIMIT:
-        raise ValidationError({"message": "Рекламный блок превышает 200 единиц UTF-16, включая «Рекомендация: » и текст ссылки."})
+    if utf16_length(advertising_text(message, link_label)) > MESSAGE_LIMIT:
+        raise ValidationError({"message": "Текст превышает лимит Telegram — 4096 единиц UTF-16."})
 
 
 def append_advertising(post, campaign, source_url=""):
     block, ad_entities = campaign_copy(campaign)
-    # Always reserve the entire agreed advertising allowance, never truncate copy.
-    if utf16_length(post) + utf16_length(AD_SEPARATOR) + AD_LIMIT > MESSAGE_LIMIT:
-        raise ValueError("В посте недостаточно места для рекламного блока: максимум основного поста — 3894 единицы UTF-16.")
+    if utf16_length(post + AD_SEPARATOR + block) > MESSAGE_LIMIT:
+        raise ValueError("Пост вместе с рекомендацией превышает лимит Telegram — 4096 единиц UTF-16. Текст не обрезан.")
     offset = utf16_length(post + AD_SEPARATOR)
     entities = []
     source_offset = post.rfind(source_url) if source_url else -1

@@ -121,6 +121,12 @@ class TelegramBotApiClient:
             update for item in result if (update := _parse_update(item)) is not None
         )
 
+    def get_custom_emoji_stickers(self, emoji_ids: list[str]) -> list[dict]:
+        result = self._call("getCustomEmojiStickers", payload={"custom_emoji_ids": emoji_ids})
+        if not isinstance(result, list) or not all(isinstance(item, dict) for item in result):
+            raise TelegramResponseError("Telegram getCustomEmojiStickers returned malformed data.")
+        return result
+
     def send_message(self, *, chat_id: str, text: str, entities: list | None = None) -> str:
         payload = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
         if entities:

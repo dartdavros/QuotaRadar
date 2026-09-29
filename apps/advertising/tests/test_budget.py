@@ -7,8 +7,11 @@ from .base import AdvertisingTestCase
 
 
 class AnalysisBudgetTests(AdvertisingTestCase):
-    def test_active_campaign_reserves_full_block_and_separator(self):
-        self.assertEqual(quota_message_limit(), 3894)
+    def test_active_campaign_reserves_actual_block_and_separator(self):
+        self.assertEqual(quota_message_limit(), 4096 - self.campaign.block_length - 2)
+        self.campaign.body = "**" + "я" * 500 + "**"
+        self.campaign.save()
+        self.assertEqual(quota_message_limit(), 4096 - self.campaign.block_length - 2)
         self.campaign.enabled = False
         self.campaign.save()
         self.assertEqual(quota_message_limit(), 4096)
@@ -18,7 +21,7 @@ class AnalysisBudgetTests(AdvertisingTestCase):
         title = "Лимиты Codex увеличены"
         overhead = utf16_length(format_message_values(title, "я", post)) - 1
         values = dict(is_relevant=True, event_type="quota_increase", provider="openai", product="codex", title_ru=title)
-        valid = AnalysisPayload(**values, message_ru="я" * (3894 - overhead))
+        valid = AnalysisPayload(**values, message_ru="я" * (quota_message_limit() - overhead))
         validate_payload_for_post(payload=valid, source_post=post)
         invalid = valid.model_copy(update={"message_ru": valid.message_ru + "я"})
         with self.assertRaises(AnalysisQualityError):

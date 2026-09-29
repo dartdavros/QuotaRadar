@@ -1,7 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
-from apps.advertising.formatting import AD_LIMIT, PREFIX, advertising_text, utf16_length, validate_copy, validate_body
+from apps.advertising.formatting import MESSAGE_LIMIT, PREFIX, advertising_text, utf16_length, validate_copy, validate_body
 from apps.advertising.markup import render_markup
 from apps.advertising.models import Campaign
 from apps.telegram.models import DeliveryTarget, DeliveryTargetType
@@ -22,14 +22,14 @@ class CopyLengthTests(SimpleTestCase):
         self.assertEqual(render_markup(body.replace("\n", "\r\n")).text, rendered.text)
 
     def test_invalid_markup_and_over_limit_are_rejected(self):
-        for body in ("[Без URL]", "🤖[abc]", "[Ссылка](javascript:alert)", "я" * 200):
+        for body in ("[Ссылка](javascript:alert)", "я" * MESSAGE_LIMIT):
             with self.subTest(body=body), self.assertRaises(ValidationError):
                 validate_body(body)
     def test_exact_limit_counts_prefix_space_and_label(self):
-        length = AD_LIMIT - utf16_length(PREFIX + " Ссылка")
+        length = MESSAGE_LIMIT - utf16_length(PREFIX + " Ссылка")
         message = "я" * length
         validate_copy(message, "Ссылка", "https://example.com")
-        self.assertEqual(utf16_length(advertising_text(message, "Ссылка")), 200)
+        self.assertEqual(utf16_length(advertising_text(message, "Ссылка")), MESSAGE_LIMIT)
         with self.assertRaises(ValidationError):
             validate_copy(message + "я", "Ссылка", "https://example.com")
 

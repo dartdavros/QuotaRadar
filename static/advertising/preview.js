@@ -19,6 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const form = new FormData();
         form.set("body", body.value);
         form.set("target", target.value);
+        form.set("campaign", body.dataset.campaignId || "");
         form.set("csrfmiddlewaretoken", document.querySelector("[name=csrfmiddlewaretoken]").value);
         try {
             const response = await fetch(body.dataset.previewUrl, {
@@ -33,10 +34,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
             body.setCustomValidity("");
-            help.textContent = `${instructions} ${result.length} / 200.`;
+            const count = result.post_length == null
+                ? `Длина рекомендации: ${result.length}.`
+                : `Весь пост: ${result.post_length} / ${result.limit}. Рекомендация: ${result.length}.`;
+            help.textContent = `${instructions} ${count} ${result.warning || ""}`;
             preview.innerHTML = result.html;
         } catch {
-            if (current === revision) preview.textContent = "Предпросмотр недоступен.";
+            if (current === revision) {
+                body.setCustomValidity("");
+                preview.textContent = "Предпросмотр недоступен.";
+            }
         }
     };
     const schedule = () => {
