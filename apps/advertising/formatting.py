@@ -1,8 +1,9 @@
-"""Plain advertising copy with exactly one explicitly marked text link."""
+"""Advertising copy and UTF-16 space accounting."""
 import re
 
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
+from .markup import render_markup
 
 AD_LIMIT = 200
 AD_SEPARATOR = "\n\n"
@@ -18,6 +19,21 @@ def advertising_text(message, link_label):
     return f"{PREFIX}{message.strip()} {link_label.strip()}"
 
 
+def campaign_copy(campaign):
+    if campaign.body:
+        rendered = render_markup(campaign.body.strip())
+        return PREFIX.rstrip() + "\n" + rendered.text, rendered.entities
+    block = advertising_text(campaign.message, campaign.link_label)
+    return block, [{"type": "text_link", "offset": utf16_length(PREFIX + campaign.message.strip() + " "),
+                    "length": utf16_length(campaign.link_label.strip()), "url": campaign.url}]
+
+
+def validate_body(body):
+    block = PREFIX.rstrip() + "\n" + render_markup(body.strip()).text
+    if utf16_length(block) > AD_LIMIT:
+        raise ValidationError("Рекламный блок превышает 200 единиц UTF-16, включая «Рекомендация:».")
+
+
 def validate_copy(message, link_label, url):
     for field, value in (("message", message), ("link_label", link_label)):
         if not value.strip() or any(character in value for character in "\r\n"):
@@ -30,16 +46,17 @@ def validate_copy(message, link_label, url):
 
 
 def append_advertising(post, campaign, source_url=""):
-    block = advertising_text(campaign.message, campaign.link_label)
+    block, ad_entities = campaign_copy(campaign)
     # Always reserve the entire agreed advertising allowance, never truncate copy.
     if utf16_length(post) + utf16_length(AD_SEPARATOR) + AD_LIMIT > MESSAGE_LIMIT:
         raise ValueError("В посте недостаточно места для рекламного блока: максимум основного поста — 3894 единицы UTF-16.")
-    offset = utf16_length(post + AD_SEPARATOR + PREFIX + campaign.message.strip() + " ")
+    offset = utf16_length(post + AD_SEPARATOR)
     entities = []
     source_offset = post.rfind(source_url) if source_url else -1
     if source_offset >= 0:
         entities.append({"type": "url", "offset": utf16_length(post[:source_offset]),
                          "length": utf16_length(source_url)})
-    entities.append({"type": "text_link", "offset": offset,
-                     "length": utf16_length(campaign.link_label.strip()), "url": campaign.url})
+    if campaign.body:
+        offset += utf16_length(PREFIX.rstrip() + "\n")
+    entities.extend({**entity, "offset": entity["offset"] + offset} for entity in ad_entities)
     return post + AD_SEPARATOR + block, entities

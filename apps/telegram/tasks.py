@@ -29,6 +29,7 @@ from .delivery_state import (
 from .locks import delivery_send_lock
 from .models import Delivery, DeliveryStatus
 from .services import DeliveryMessageError, format_delivery_message
+from .send_support import send_with_emoji_fallback
 from .task_support import _retry_or_fail, _result, _task_id
 from apps.advertising.services import (
     begin_send, has_advertising, mark_uncertain, prepare_delivery, unconfirmed_send,
@@ -145,7 +146,7 @@ def _deliver_locked(
             kwargs = {"chat_id": delivery.target.telegram_chat_id, "text": text}
             if entities:
                 kwargs["entities"] = entities
-            message_id = client.send_message(**kwargs)
+            message_id = send_with_emoji_fallback(client, delivery.pk, kwargs)
     except TelegramTemporaryError as exc:
         if has_advertising(delivery.pk) and exc.delivery_uncertain:
             mark_uncertain(delivery.pk, "Результат отправки неизвестен. Проверьте канал перед повтором.")

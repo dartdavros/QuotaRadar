@@ -8,6 +8,19 @@ from .base import AdvertisingTestCase
 
 
 class ReservationTests(AdvertisingTestCase):
+    def test_rich_body_is_frozen_with_two_links_and_custom_emoji(self):
+        self.campaign.body = ("🤖[5397681122542893003] [**Купить Claude**](https://example.com/claude)\n"
+                              "🤖[5208665212483310136] [**Купить ChatGPT**](https://example.com/chatgpt)")
+        self.campaign.save()
+        text, entities = prepare_delivery(self.delivery, "Новость 😀")
+        self.assertIn("Рекомендация:\n🤖 Купить Claude\n🤖 Купить ChatGPT", text)
+        self.assertEqual([entity["type"] for entity in entities],
+                         ["custom_emoji", "text_link", "bold", "custom_emoji", "text_link", "bold"])
+        encoded = text.encode("utf-16-le")
+        for entity, expected in zip(entities, ("🤖", "Купить Claude", "Купить Claude", "🤖", "Купить ChatGPT", "Купить ChatGPT")):
+            actual = encoded[entity["offset"] * 2:(entity["offset"] + entity["length"]) * 2].decode("utf-16-le")
+            self.assertEqual(actual, expected)
+
     def test_only_link_label_is_explicitly_linked_and_offsets_support_emoji(self):
         text, entities = prepare_delivery(self.delivery, "Новость 😀")
         self.assertEqual(text, "Новость 😀\n\nРекомендация: Курс по AI для разработчиков. Программа")

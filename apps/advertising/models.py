@@ -6,7 +6,7 @@ from django.db.models import Q
 
 from apps.sources.models import Feed
 from apps.telegram.models import DeliveryTarget, DeliveryTargetType
-from .formatting import advertising_text, utf16_length, validate_copy
+from .formatting import campaign_copy, utf16_length, validate_body, validate_copy
 
 
 class PlacementStatus(models.TextChoices):
@@ -22,9 +22,10 @@ HELD_STATUSES = (PlacementStatus.RESERVED, PlacementStatus.SENDING, PlacementSta
 
 class Campaign(models.Model):
     target = models.ForeignKey("telegram.DeliveryTarget", verbose_name="Канал", on_delete=models.PROTECT)
-    message = models.TextField("Текст рекламы")
-    link_label = models.CharField("Текст ссылки", max_length=200)
-    url = models.URLField("URL", max_length=2000)
+    body = models.TextField("Текст рекомендации", blank=True)
+    message = models.TextField("Текст рекламы", blank=True)
+    link_label = models.CharField("Текст ссылки", max_length=200, blank=True)
+    url = models.URLField("URL", max_length=2000, blank=True)
     total_posts = models.PositiveIntegerField("Количество постов", validators=[MinValueValidator(1)])
     enabled = models.BooleanField("Активна", default=False)
     created_at = models.DateTimeField("Создана", auto_now_add=True)
@@ -40,7 +41,7 @@ class Campaign(models.Model):
 
     @property
     def block_length(self):
-        return utf16_length(advertising_text(self.message, self.link_label))
+        return utf16_length(campaign_copy(self)[0])
 
     @property
     def sent_posts(self):
@@ -56,8 +57,15 @@ class Campaign(models.Model):
 
     def clean(self):
         super().clean()
+        self.body = self.body.replace("\r\n", "\n").strip()
         self.message, self.link_label, self.url = self.message.strip(), self.link_label.strip(), self.url.strip()
-        validate_copy(self.message, self.link_label, self.url)
+        if self.body:
+            try:
+                validate_body(self.body)
+            except ValidationError as exc:
+                raise ValidationError({"body": exc.messages}) from None
+        else:
+            validate_copy(self.message, self.link_label, self.url)
         if self.target_id and (self.target.target_type != DeliveryTargetType.CHANNEL or self.target.feed != Feed.QUOTA):
             raise ValidationError({"target": "Реклама доступна только для канала квот QuotaRadar."})
         if self.pk:
@@ -77,7 +85,7 @@ class Campaign(models.Model):
             super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.message[:60]} ({self.target})"
+        return f"{(self.body or self.message)[:60]} ({self.target})"
 
 
 class Placement(models.Model):

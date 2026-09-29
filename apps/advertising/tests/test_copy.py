@@ -1,13 +1,30 @@
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
-from apps.advertising.formatting import AD_LIMIT, PREFIX, advertising_text, utf16_length, validate_copy
+from apps.advertising.formatting import AD_LIMIT, PREFIX, advertising_text, utf16_length, validate_copy, validate_body
+from apps.advertising.markup import render_markup
 from apps.advertising.models import Campaign
 from apps.telegram.models import DeliveryTarget, DeliveryTargetType
 from .base import AdvertisingTestCase
 
 
 class CopyLengthTests(SimpleTestCase):
+    def test_multiline_links_bold_and_custom_emoji(self):
+        body = ("🤖[5397681122542893003] [**Купить Claude**](https://example.com/claude)\n"
+                "🤖[5208665212483310136] [**Купить ChatGPT**](https://example.com/chatgpt)")
+        rendered = render_markup(body)
+        self.assertEqual(rendered.text, "🤖 Купить Claude\n🤖 Купить ChatGPT")
+        self.assertEqual([item["type"] for item in rendered.entities],
+                         ["custom_emoji", "text_link", "bold", "custom_emoji", "text_link", "bold"])
+        self.assertEqual(rendered.entities[0]["length"], 2)
+        self.assertEqual(rendered.entities[3]["offset"], utf16_length("🤖 Купить Claude\n"))
+        validate_body(body)
+        self.assertEqual(render_markup(body.replace("\n", "\r\n")).text, rendered.text)
+
+    def test_invalid_markup_and_over_limit_are_rejected(self):
+        for body in ("[Без URL]", "🤖[abc]", "[Ссылка](javascript:alert)", "я" * 200):
+            with self.subTest(body=body), self.assertRaises(ValidationError):
+                validate_body(body)
     def test_exact_limit_counts_prefix_space_and_label(self):
         length = AD_LIMIT - utf16_length(PREFIX + " Ссылка")
         message = "я" * length

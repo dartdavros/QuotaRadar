@@ -13,20 +13,33 @@ class AdvertisingAdminTests(AdvertisingTestCase):
         user = get_user_model().objects.create_superuser("ads-test-owner", "owner@example.test", "test-password")
         force_login_verified(self.client, user)
 
-    def test_campaign_form_has_counter_and_separate_link_fields(self):
+    def test_campaign_form_has_editor_and_preview(self):
         response = self.client.get(reverse("admin:advertising_campaign_change", args=[self.campaign.pk]))
         self.assertEqual(response.status_code, 200)
-        for value in ("id_message", "id_link_label", "id_url", "advertising/counter.js", "id_message_helptext"):
+        for value in ("id_body", "advertising/preview.js", "data-preview-url"):
             self.assertContains(response, value)
+        self.assertNotContains(response, 'id="id_link_label"')
 
     def test_over_limit_form_is_rejected_server_side(self):
         response = self.client.post(reverse("admin:advertising_campaign_change", args=[self.campaign.pk]), {
-            "target": self.target.pk, "message": "я" * 200, "link_label": "Программа", "url": "https://example.com",
+            "target": self.target.pk, "body": "я" * 200,
             "total_posts": 2, "enabled": "on", "_save": "Сохранить"})
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "превышает 200")
         self.campaign.refresh_from_db()
-        self.assertNotEqual(self.campaign.message, "я" * 200)
+        self.assertFalse(self.campaign.body)
+
+    def test_preview_uses_real_post_and_safe_formatted_links(self):
+        response = self.client.post(reverse("admin:advertising_campaign_preview"), {
+            "target": self.target.pk,
+            "body": "🤖[5397681122542893003] [**Купить Claude**](https://example.com/?a=1&b=2)",
+        })
+        self.assertEqual(response.status_code, 200)
+        html = response.json()["html"]
+        self.assertIn("Опубликовано:", html)
+        self.assertIn('href="https://example.com/?a=1&amp;b=2"', html)
+        self.assertIn('<strong>Купить Claude</strong></a>', html)
+        self.assertNotIn("5397681122542893003]", html)
 
     def test_placement_journal_displays_frozen_post(self):
         prepare_delivery(self.delivery, "Новость")
