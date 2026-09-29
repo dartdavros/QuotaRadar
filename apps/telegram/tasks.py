@@ -7,7 +7,6 @@ import logging
 from celery import Task, shared_task
 from django.utils import timezone
 
-from apps.configuration.models import SystemConfiguration
 from apps.sources.models import Feed
 from apps.monitoring.events import record_monitoring_event
 from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
@@ -25,16 +24,17 @@ from .delivery_state import (
     increment_attempts,
     mark_failed,
     mark_permanent_chat_failure,
-    mark_retry_scheduled,
     mark_sent,
 )
 from .locks import delivery_send_lock
 from .models import Delivery, DeliveryStatus
 from .services import DeliveryMessageError, format_delivery_message
+from .task_support import _retry_or_fail, _result, _task_id
+from apps.advertising.services import (
+    begin_send, has_advertising, mark_uncertain, prepare_delivery, unconfirmed_send,
+)
 
 logger = logging.getLogger(__name__)
-_BASE_RETRY_SECONDS = 30
-_MAX_RETRY_SECONDS = 900
 
 
 @shared_task(bind=True, name="telegram.deliver_analysis")
@@ -91,6 +91,8 @@ def _deliver_locked(
 ) -> dict[str, int | str]:
     if delivery.status == DeliveryStatus.SENT:
         return _result("already_sent", delivery)
+    if delivery.status == DeliveryStatus.UNCERTAIN or unconfirmed_send(delivery.pk):
+        return _result("uncertain", delivery)
     if delivery.status == DeliveryStatus.FAILED:
         return _result("permanently_failed", delivery)
     if delivery.next_attempt_at and delivery.next_attempt_at > timezone.now():
@@ -121,8 +123,9 @@ def _deliver_locked(
         return _result("stale", delivery)
 
     try:
-        text = format_delivery_message(delivery.analysis)
-    except DeliveryMessageError as exc:
+        text = delivery.rendered_text or format_delivery_message(delivery.analysis)
+        text, entities = prepare_delivery(delivery, text)
+    except (DeliveryMessageError, ValueError) as exc:
         mark_failed(delivery.pk, str(exc))
         record_monitoring_event(
             component=MonitoringComponent.TELEGRAM,
@@ -137,11 +140,16 @@ def _deliver_locked(
     increment_attempts(delivery.pk)
     try:
         with TelegramBotApiClient() as client:
-            message_id = client.send_message(
-                chat_id=delivery.target.telegram_chat_id,
-                text=text,
-            )
+            if not begin_send(delivery.pk):
+                return _result("uncertain", delivery)
+            kwargs = {"chat_id": delivery.target.telegram_chat_id, "text": text}
+            if entities:
+                kwargs["entities"] = entities
+            message_id = client.send_message(**kwargs)
     except TelegramTemporaryError as exc:
+        if has_advertising(delivery.pk) and exc.delivery_uncertain:
+            mark_uncertain(delivery.pk, "Результат отправки неизвестен. Проверьте канал перед повтором.")
+            return _result("uncertain", delivery)
         return _retry_or_fail(task=task, delivery=delivery, exc=exc, context=context)
     except TelegramPermanentChatError as exc:
         mark_permanent_chat_failure(delivery.pk, str(exc))
@@ -170,6 +178,9 @@ def _deliver_locked(
         )
         return _result("failed", delivery)
     except _PERMANENT_DELIVERY_ERRORS as exc:
+        if isinstance(exc, TelegramResponseError) and has_advertising(delivery.pk):
+            mark_uncertain(delivery.pk, "Telegram не подтвердил отправку. Проверьте канал.")
+            return _result("uncertain", delivery)
         mark_failed(delivery.pk, str(exc))
         logger.error(
             "Telegram delivery failed permanently.",
@@ -225,76 +236,3 @@ def _load_delivery(*, analysis_id: int, target_id: int) -> Delivery | None:
         .filter(analysis_id=analysis_id, target_id=target_id)
         .first()
     )
-
-
-def _retry_or_fail(
-    *,
-    task: Task,
-    delivery: Delivery,
-    exc: TelegramTemporaryError,
-    context: dict[str, object],
-) -> dict[str, int | str]:
-    configuration = SystemConfiguration.load()
-    retries = getattr(task.request, "retries", 0)
-    if retries < configuration.retry_count:
-        countdown = exc.retry_after or min(
-            _BASE_RETRY_SECONDS * (2**retries), _MAX_RETRY_SECONDS
-        )
-        mark_retry_scheduled(delivery.pk, str(exc), countdown=countdown)
-        record_monitoring_event(
-            component=MonitoringComponent.TELEGRAM,
-            status=MonitoringEventStatus.ERROR,
-            source=delivery.analysis.source_post.source,
-            message=(
-                f"Временная ошибка доставки {delivery.pk}: {exc}. "
-                f"Повтор через {countdown} сек."
-            ),
-            error_type=type(exc).__name__,
-            task_id=_task_id(task),
-        )
-        logger.warning(
-            "Temporary Telegram delivery failure; retry scheduled.",
-            extra={
-                **context,
-                "event": "telegram.delivery_retry_scheduled",
-                "status": "retry",
-                "error_type": type(exc).__name__,
-            },
-        )
-        raise task.retry(
-            exc=exc,
-            countdown=countdown,
-            max_retries=configuration.retry_count,
-        )
-    mark_failed(delivery.pk, str(exc))
-    logger.error(
-        "Telegram delivery retries exhausted.",
-        extra={
-            **context,
-            "event": "telegram.delivery_retries_exhausted",
-            "status": "failed",
-            "error_type": type(exc).__name__,
-        },
-    )
-    record_monitoring_event(
-        component=MonitoringComponent.TELEGRAM,
-        status=MonitoringEventStatus.ERROR,
-        source=delivery.analysis.source_post.source,
-        message=f"Ошибка доставки {delivery.pk}: {exc}",
-        error_type=type(exc).__name__,
-        task_id=_task_id(task),
-    )
-    return _result("failed", delivery)
-
-
-def _result(status: str, delivery: Delivery) -> dict[str, int | str]:
-    return {
-        "status": status,
-        "delivery_id": delivery.pk,
-        "analysis_id": delivery.analysis_id,
-        "target_id": delivery.target_id,
-    }
-
-
-def _task_id(task: Task) -> str:
-    return str(getattr(task.request, "id", "") or "")

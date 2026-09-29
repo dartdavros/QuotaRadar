@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     "apps.analysis.apps.AnalysisConfig",
     "apps.telegram.apps.TelegramConfig",
     "apps.news.apps.NewsConfig",
+    "apps.advertising.apps.AdvertisingConfig",
 ]
 
 MIDDLEWARE = [

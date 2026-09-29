@@ -53,6 +53,8 @@ class DeliveryAdmin(admin.ModelAdmin):
         "next_attempt_at",
         "sent_at",
         "last_error",
+        "rendered_text",
+        "message_entities",
     )
     fields = readonly_fields
 

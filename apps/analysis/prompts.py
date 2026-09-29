@@ -44,8 +44,12 @@ def render_prompt(
         ) from None
     if not prompt.system_prompt.strip() or not user_prompt.strip():
         raise PromptConfigurationError("The configured prompt is empty.")
+    from apps.advertising.budget import quota_message_limit
+    system_prompt = prompt.system_prompt.strip()
+    if quota_message_limit() < 4096:
+        system_prompt += "\nОбщий объём title_ru и message_ru — не более 3500 единиц UTF-16. Сохрани подтверждённые факты; место для источника, даты и рекомендации добавит приложение."
     return RenderedPrompt(
-        system_prompt=prompt.system_prompt.strip(),
+        system_prompt=system_prompt,
         user_prompt=user_prompt.strip(),
         version=prompt.version,
     )

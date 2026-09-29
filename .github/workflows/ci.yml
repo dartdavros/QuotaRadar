@@ -143,8 +143,8 @@ jobs:
               "$deploy_dir/docker/secrets/master.key" \
               "$release_dir/docker/secrets/master.key"
           else
-            sudo python3 "$release_dir/scripts/generate_master_key.py" \
-              --output "$release_dir/docker/secrets/master.key"
+            echo "Missing existing production master key; deployment stopped." >&2
+            exit 1
           fi
           sudo chmod 0444 "$release_dir/docker/secrets/master.key"
 

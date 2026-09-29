@@ -23,6 +23,7 @@ class DeliveryStatus(models.TextChoices):
     PENDING = "pending", "Ожидает"
     SENT = "sent", "Отправлено"
     FAILED = "failed", "Ошибка"
+    UNCERTAIN = "uncertain", "Требуется проверка канала"
 
 
 class DeliveryTarget(models.Model):
@@ -139,6 +140,8 @@ class Delivery(models.Model):
     )
     sent_at = models.DateTimeField("Отправлено", null=True, blank=True)
     last_error = models.TextField("Последняя ошибка", blank=True)
+    rendered_text = models.TextField("Зафиксированный текст поста", blank=True)
+    message_entities = models.JSONField("Форматирование ссылок", default=list, blank=True)
 
     class Meta:
         verbose_name = "Доставка Telegram"

@@ -61,12 +61,14 @@ def validate_payload_for_post(
     if _URL_PATTERN.search(title) or _URL_PATTERN.search(message):
         raise AnalysisQualityError("LLM output must not contain links.")
 
-    rendered = build_notification_text_values(
-        title_ru=title,
-        message_ru=message,
-        source_url=source_post.source_url,
-    )
-    if len(rendered) > TELEGRAM_MESSAGE_MAX_LENGTH:
+    from apps.advertising.budget import quota_message_limit
+    from apps.advertising.formatting import utf16_length
+    from apps.telegram.formatting import DeliveryMessageError, format_message_values
+    try:
+        rendered = format_message_values(title, message, source_post)
+    except DeliveryMessageError as exc:
+        raise AnalysisQualityError(str(exc)) from exc
+    if utf16_length(rendered) > quota_message_limit():
         raise AnalysisQualityError("Rendered Telegram message is too long.")
 
 

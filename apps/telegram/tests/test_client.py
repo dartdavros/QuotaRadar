@@ -76,6 +76,19 @@ class TelegramBotApiClientTests(SimpleTestCase):
             self.client.send_message(chat_id="42", text="Сообщение")
 
         self.assertEqual(raised.exception.retry_after, 17)
+        self.assertFalse(raised.exception.delivery_uncertain)
+
+    def test_explicit_link_entities_are_sent_to_telegram(self) -> None:
+        self.http_client.post.return_value = self.response(status_code=200, payload={"ok": True, "result": {"message_id": 777}})
+        entities = [{"type": "text_link", "offset": 10, "length": 4, "url": "https://example.com"}]
+        self.client.send_message(chat_id="42", text="Рекомендация", entities=entities)
+        self.assertEqual(self.http_client.post.call_args.kwargs["json"]["entities"], entities)
+
+    def test_boolean_message_id_is_not_a_valid_receipt(self) -> None:
+        from apps.telegram.client import TelegramResponseError
+        self.http_client.post.return_value = self.response(status_code=200, payload={"ok": True, "result": {"message_id": True}})
+        with self.assertRaises(TelegramResponseError):
+            self.client.send_message(chat_id="42", text="Новость")
 
     def test_unavailable_chat_is_permanent_error(self) -> None:
         self.http_client.post.return_value = self.response(

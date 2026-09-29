@@ -35,9 +35,10 @@ class TelegramAuthenticationError(TelegramApiError):
 class TelegramTemporaryError(TelegramApiError):
     """A network, rate-limit, or server failure that may succeed later."""
 
-    def __init__(self, message: str, *, retry_after: int | None = None) -> None:
+    def __init__(self, message: str, *, retry_after: int | None = None, delivery_uncertain: bool = True) -> None:
         super().__init__(message)
         self.retry_after = retry_after
+        self.delivery_uncertain = delivery_uncertain
 
 
 class TelegramPermanentChatError(TelegramApiError):
@@ -120,19 +121,18 @@ class TelegramBotApiClient:
             update for item in result if (update := _parse_update(item)) is not None
         )
 
-    def send_message(self, *, chat_id: str, text: str) -> str:
+    def send_message(self, *, chat_id: str, text: str, entities: list | None = None) -> str:
+        payload = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
+        if entities:
+            payload["entities"] = entities
         result = self._call(
             "sendMessage",
-            payload={
-                "chat_id": chat_id,
-                "text": text,
-                "disable_web_page_preview": True,
-            },
+            payload=payload,
         )
         if not isinstance(result, dict):
             raise TelegramResponseError("Telegram sendMessage returned malformed data.")
         message_id = result.get("message_id")
-        if not isinstance(message_id, int):
+        if type(message_id) is not int or message_id < 1:
             raise TelegramResponseError("Telegram sendMessage omitted message_id.")
         return str(message_id)
 
@@ -155,7 +155,8 @@ class TelegramBotApiClient:
                     "Telegram rejected the configured bot token."
                 )
             if response.status_code == 429 or 500 <= response.status_code < 600:
-                raise TelegramTemporaryError("Telegram API is temporarily unavailable.")
+                raise TelegramTemporaryError("Telegram API is temporarily unavailable.",
+                                             delivery_uncertain=response.status_code != 429)
             raise TelegramResponseError("Telegram API returned invalid JSON.")
 
         if 200 <= response.status_code < 300 and body.get("ok") is True:
@@ -205,6 +206,7 @@ def _raise_api_error(*, status_code: int, body: dict[str, Any]) -> None:
         raise TelegramTemporaryError(
             "Telegram API is temporarily unavailable.",
             retry_after=retry_after,
+            delivery_uncertain=error_code != 429,
         )
     if error_code in {400, 403, 404}:
         raise TelegramPermanentChatError(
