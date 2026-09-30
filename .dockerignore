@@ -16,5 +16,6 @@ docker/secrets/*.key
 db.sqlite3
 staticfiles
 media
+backups
 docs
 *.zip
