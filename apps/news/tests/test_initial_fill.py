@@ -2,46 +2,23 @@
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
-from django.test import TestCase, override_settings
-from django.utils import timezone
-from apps.sources.models import Source, SourcePost
-from apps.telegram.models import DeliveryTarget
+from django.test import override_settings
+from apps.sources.models import SourcePost
 from apps.news.budget import reserve, settle, BudgetExhausted
 from apps.news.errors import NewsPolicyError
 from apps.news.fill_collection import advance
 from apps.news.fill_delivery import fill_ready, frozen
-from apps.news.preparation import prepare
-from apps.news.schemas import HistoricalVerificationPayload, WritingPayload
 from apps.news.initial_fill import (FILL_LIMIT, start_fill, register_archive, rank,
                                     remaining, select_initial)
-from apps.news.models import (InitialFill, NewsAssessment, NewsConfiguration, NewsDailyQuota,
-                             NewsDelivery, NewsEvent, NewsEventEvidence, NewsPublication, XBudgetPeriod)
+from apps.news.models import (InitialFill, NewsAssessment, NewsDailyQuota,
+                             NewsDelivery, NewsEventEvidence, NewsPublication, XBudgetPeriod)
 from apps.news.payload import publication_expired, publication_allowed
 from apps.news.scheduling import select_publication, local_day, reserve_day
+from .initial_fill_case import InitialFillCase
 
 
 @override_settings(QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED=True)
-class InitialFillTests(TestCase):
-    def setUp(self):
-        self.now = timezone.now()
-        self.source = Source.objects.get(username="OpenAIDevs")
-        self.target = DeliveryTarget.objects.create(target_type="channel", feed="news", telegram_chat_id="-100909")
-        self.config = NewsConfiguration.load()
-        self.config.target = self.target
-        self.config.collection_enabled = self.config.analysis_enabled = self.config.publishing_enabled = True
-        self.config.save()
-
-    def evidence(self, number, days=2, score=90, kind="tool_release", product="Codex"):
-        date = self.now-timedelta(days=days)
-        post = SourcePost.objects.create(source=self.source, external_id=str(number),
-            text="Codex adds review.", normalized_text="Codex adds review.",
-            source_url=f"https://x.com/OpenAIDevs/status/{number}", published_at=date, raw_data={})
-        NewsAssessment.objects.create(post=post, status="done")
-        event = NewsEvent.objects.create(fingerprint=str(number), product=product, version=str(number),
-            event_type=kind, score=score, urgent=True, facts=[], first_seen_at=date, last_seen_at=date,
-            expires_at=date+timedelta(hours=36))
-        NewsEventEvidence.objects.create(event=event, post=post, facts=[])
-        return event
+class InitialFillTests(InitialFillCase):
 
     @override_settings(QUOTARADAR_NEWS_INITIAL_FILL_ALLOWED=False)
     def test_local_start_is_blocked_before_any_write(self):
@@ -100,20 +77,6 @@ class InitialFillTests(TestCase):
         print("\n  delivery order:", " -> ".join(f"{p} ({(self.now-t).days}d {(self.now-t).seconds//3600}h ago)" for p, t in sent))
         self.assertEqual([p for p, _ in sent], ["Claude Tag", "Codex", "Sora", "Astra", "Gemini", "Cursor"])
         self.assertEqual([t for _, t in sent], sorted(t for _, t in sent))
-
-    def test_history_keeps_a_supported_text_even_if_its_offer_expired(self):
-        event = self.evidence(1, product="Astra")
-        run = start_fill()
-        publication = NewsPublication.objects.create(event=event, target=self.target, initial_fill=run, attempts=4)
-        writing = WritingPayload(title="Astra развёрнута для пользователей Plus и Pro",
-                                 text="Astra доступна в Codex и ChatGPT Work.\n\nСброс лимитов прошёл раньше срока.")
-        verdict = HistoricalVerificationPayload(supported=True, reason="Подтверждено", still_relevant=False)
-        with patch("apps.news.preparation.ask", side_effect=[(writing, "m", {}), (verdict, "m", {})]):
-            prepare(publication.pk, self.config)
-        publication.refresh_from_db()
-        # Attempt five of six: history outlives a flaky provider and is not rejected for being old.
-        self.assertEqual((publication.status, publication.attempts), ("ready", 5))
-        self.assertNotIn("2026", publication.rendered)
 
     def test_three_products_no_longer_cancel_the_paid_history_read(self):
         for n, product in enumerate(("Codex", "Claude Code", "Cursor")):

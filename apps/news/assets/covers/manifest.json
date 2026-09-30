@@ -1,0 +1,55 @@
+{
+  "cursor": {
+    "file": "cursor.png",
+    "sha256": "79fadf3e98be76140b389403fbd552a3535465d5d7b39eeedfd90b149645c605",
+    "source": "https://cursor.com/brand",
+    "download": "https://ptht05hbb1ssoooe.public.blob.vercel-storage.com/assets/brand/cursor-brand-assets.zip",
+    "archive_member": "General Logos/Lockup Horizontal/PNG/LOCKUP_HORIZONTAL_2D_LIGHT.png",
+    "original_sha256": "5b3ea43ff38738235f73b452a40030a4343e09c9f4428e890b9484da4ae9940a",
+    "retrieved": "2026-09-30"
+  },
+  "claude": {
+    "file": "claude.png",
+    "sha256": "bb7c474bdd5802fa82f768234ed4d959579b0393f317e4933df038e9092bb6a2",
+    "source": "https://www.anthropic.com/news",
+    "download": "https://www.anthropic.com/press-kit",
+    "archive_member": "Anthropic media resources/Anthropic logos/Claude logos/1 Claude logo/PNG/Claude logo - Slate.png",
+    "original_sha256": "f95e9dd722b51b10312b1e62e139389293c8a31cd6101a694290bf767765f85b",
+    "retrieved": "2026-09-30"
+  },
+  "claude-code": {
+    "file": "claude-code.png",
+    "sha256": "dbccec3d5cfd71f1db7bcf3f1306110145bfd43eef06e3ffca4bc9b758c1c8a8",
+    "source": "https://www.anthropic.com/news",
+    "download": "https://www.anthropic.com/press-kit",
+    "archive_member": "Anthropic media resources/Anthropic logos/Claude logos/2 Claude Code logo/PNG/Claude Code logo - Slate.png",
+    "original_sha256": "80dd500873626abb6a71b5ca6722060ffa3cfb03005b6f5fc967ec7d7a1a9c39",
+    "retrieved": "2026-09-30"
+  },
+  "anthropic": {
+    "file": "anthropic.png",
+    "sha256": "1263ef3c50cf8b3d8f01f9e225b63b8e15efee12b9d03dbc360777a83219cdbf",
+    "source": "https://www.anthropic.com/news",
+    "download": "https://www.anthropic.com/press-kit",
+    "archive_member": "Anthropic media resources/Anthropic logos/Anthropic logos/1 Anthropic logo/PNG/Anthropic logo - Slate.png",
+    "original_sha256": "f883a97c31ec76e7d4e8a02fb1ee13afb8746f6284ca8ce439887447f0169936",
+    "retrieved": "2026-09-30"
+  },
+  "openai": {
+    "file": "openai.png",
+    "sha256": "af8a95fca5df166297201cfb674d7a67c93eeab1a0bfd7805194c2fbe62c73ea",
+    "source": "https://openai.com/brand/",
+    "download": "https://cdn.openai.com/brand/OpenAI-Logos-2025.zip",
+    "archive_member": "OpenAI-logos(new)/PNGs/OpenAI-black-wordmark.png",
+    "original_sha256": "fdcf43c956d70530517f8bc519b527adb6253dbf45ba7cfeb831fc9ed732f879",
+    "retrieved": "2026-09-30"
+  },
+  "google": {
+    "file": "google.png",
+    "sha256": "262084257c2103702ef8a25705e3f8dbc1fa3823103ad7b954d54bdb77e6d89d",
+    "source": "https://about.google/brand-resource-center/",
+    "download": "https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_272x92dp.png",
+    "original_sha256": "262084257c2103702ef8a25705e3f8dbc1fa3823103ad7b954d54bdb77e6d89d",
+    "retrieved": "2026-09-30"
+  }
+}

@@ -19,7 +19,7 @@ from apps.news.sending import finish
 
 class URLPolicyTests(SimpleTestCase):
     def test_reference_order_is_same_bot_file_id_url_then_explicit_upload(self):
-        asset = SimpleNamespace(telegram_file_id="", telegram_bot_identity="", url="https://pbs.twimg.com/a.jpg")
+        asset = SimpleNamespace(origin="source", telegram_file_id="", telegram_bot_identity="", url="https://pbs.twimg.com/a.jpg")
         publication = SimpleNamespace(upload_media=False)
         self.assertEqual(media_reference(asset, publication, "bot", 0), asset.url)
         asset.telegram_file_id, asset.telegram_bot_identity = "telegram-id", "bot"

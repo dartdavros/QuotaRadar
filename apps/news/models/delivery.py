@@ -19,6 +19,7 @@ class NewsPublication(models.Model):
     initial_fill = models.ForeignKey("news.InitialFill", on_delete=models.PROTECT, null=True, blank=True, related_name="publications")
     upload_media = models.BooleanField(default=False)
     media_attempts = models.PositiveSmallIntegerField(default=0)
+    cover_requested_at = models.DateTimeField(null=True, blank=True, editable=False)
     title = models.CharField("Заголовок", max_length=160, blank=True)
     text = models.TextField("Текст", blank=True)
     rendered = models.TextField(blank=True)
@@ -73,7 +74,11 @@ class MediaAsset(models.Model):
     media_key = models.CharField(max_length=100)
     kind = models.CharField(max_length=20)
     position = models.PositiveSmallIntegerField()
-    url = models.URLField(max_length=2000)
+    url = models.URLField(max_length=2000, blank=True)
+    origin = models.CharField(max_length=16, choices=(("source", "Источник"), ("generated", "Иллюстрация")),
+                              default="source", editable=False)
+    generated_content = models.BinaryField(null=True, blank=True, editable=False)
+    generation_metadata = models.JSONField(default=dict, blank=True, editable=False)
     file = models.FileField(upload_to="news", blank=True)
     checksum = models.CharField(max_length=64, blank=True)
     size = models.PositiveBigIntegerField(default=0)
@@ -82,4 +87,10 @@ class MediaAsset(models.Model):
 
     class Meta:
         ordering = ("position", "pk")
-        constraints = [models.UniqueConstraint(fields=("publication", "media_key"), name="news_publication_media_unique")]
+        constraints = [
+            models.UniqueConstraint(fields=("publication", "media_key"), name="news_publication_media_unique"),
+            models.CheckConstraint(condition=(
+                models.Q(origin="source", generated_content__isnull=True)
+                | models.Q(origin="generated", kind="photo", generated_content__isnull=False)),
+                name="news_media_origin_content"),
+        ]

@@ -5,10 +5,13 @@ from django.utils import timezone
 from .llm import ask
 from .errors import NewsPolicyError
 from .media import preserve
+from .covers import ensure_cover
+from .cover_client import CoverBlocked
 from .models import NewsPublication
 from .quality import render
 from .payload import publication_hash, publication_expired, publication_allowed
-from .schemas import WritingPayload, VerificationPayload, HistoricalVerificationPayload
+from .schemas import WritingPayload
+from .text_review import validate_review, verification_schema
 
 def prepare(publication_id, config):
     now = timezone.now()
@@ -40,15 +43,16 @@ def prepare(publication_id, config):
                    for post in posts]
         writing, model, writing_usage = ask(config, prompt=config.writing_prompt, schema=WritingPayload,
                                            data={"facts": facts, "sources": sources, "publication_time": now.isoformat(),
-                                                 "historical": bool(publication.initial_fill_id)})
+                                                 "historical": bool(publication.initial_fill_id),
+                                                 "revision_note": publication.last_error})
         verification, _, verification_usage = ask(config, prompt=config.verification_prompt,
-            schema=HistoricalVerificationPayload if publication.initial_fill_id else VerificationPayload, data={"publication": writing.model_dump(), "sources": sources,
+            schema=verification_schema(config, bool(publication.initial_fill_id)), data={"publication": writing.model_dump(), "sources": sources,
                 "publication_time": now.isoformat(), "historical": bool(publication.initial_fill_id)})
         # History is published as history: facts must hold, expiry of an old offer does not reject it.
-        if not verification.supported:
-            raise NewsPolicyError("Проверка фактов отклонила текст.")
+        validate_review(writing, verification)
         rendered = render(writing, posts)
         preserve(publication, posts)
+        ensure_cover(publication, config, writing, posts)
         payload_hash = publication_hash(publication, rendered)
         NewsPublication.objects.filter(pk=publication_id, status="preparing", attempts=attempt).update(
             status="ready", title=writing.title, text=writing.text, rendered=rendered,
@@ -59,7 +63,7 @@ def prepare(publication_id, config):
         )
     except Exception as exc:
         NewsPublication.objects.filter(pk=publication_id, status="preparing", attempts=attempt).update(
-            status="blocked" if attempt >= limit else "preparing", lease_until=None,
+            status="blocked" if isinstance(exc, CoverBlocked) or attempt >= limit else "preparing", lease_until=None,
             next_attempt_at=now+timedelta(minutes=5),
             last_error=str(exc) if isinstance(exc, NewsPolicyError) else f"Подготовка не завершена: {type(exc).__name__}.",
         )

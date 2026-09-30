@@ -40,6 +40,8 @@ def ensure_uploads(publication, bot_identity):
     for asset in publication.media.all():
         if asset.telegram_file_id and asset.telegram_bot_identity == bot_identity:
             continue
+        if asset.origin == "generated":
+            continue  # Durable bytes are verified and attached directly by NewsTransport.
         download(asset)
 
 def cleanup_sent():

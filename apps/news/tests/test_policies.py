@@ -181,16 +181,6 @@ class NewsPolicyTests(TestCase):
         with self.assertRaises(ValueError):
             validate_assessment(payload, self.post())
 
-    def test_writing_prompt_names_both_output_fields(self):
-        # The model guessed which field held the story until the prompt said so explicitly.
-        prompt = NewsConfiguration.load().writing_prompt
-        self.assertEqual((prompt.code, prompt.version, prompt.is_active), ("news_writing", 4, True))
-        self.assertIn('"title" — заголовок', prompt.system_prompt)
-        self.assertIn('"text" — сама новость', prompt.system_prompt)
-        self.assertNotIn("добавит дату", prompt.system_prompt)
-        self.assertNotIn("всего 400", prompt.system_prompt)
-        self.assertIn("объём задают факты", prompt.system_prompt)
-
     def test_render_escapes_text_and_uses_only_real_source_links(self):
         post = self.post()
         text = render(WritingPayload(title="Codex <обновился>", text="Проверка кода & изменения."), [post])

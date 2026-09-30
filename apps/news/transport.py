@@ -1,6 +1,7 @@
 """Prefer existing Telegram file IDs, then original URLs, then confirmed fallback uploads."""
 from contextlib import ExitStack
 from hashlib import sha256
+from io import BytesIO
 import json
 from apps.configuration.http_client import create_http_client, ExternalHttpRequestError
 from apps.secrets.models import SecretCode
@@ -13,7 +14,7 @@ from .receipts import (DeliveryUncertain, DeliveryRejected, DeliveryRateLimited,
 def media_reference(asset, publication, bot_identity, index):
     if asset.telegram_file_id and asset.telegram_bot_identity == bot_identity:
         return asset.telegram_file_id
-    if publication.upload_media:
+    if asset.origin == "generated" or publication.upload_media:
         return f"attach://asset{index}"
     validate_url(asset.url)
     return asset.url
@@ -44,15 +45,19 @@ class NewsTransport:
         for index, (asset, reference) in enumerate(zip(assets, references)):
             if not reference.startswith("attach://"):
                 continue
-            handle = self.stack.enter_context(asset.file.open("rb"))
+            if asset.origin == "generated":
+                handle = self.stack.enter_context(BytesIO(bytes(asset.generated_content or b"")))
+            else:
+                handle = self.stack.enter_context(asset.file.open("rb"))
             digest = sha256()
             while chunk := handle.read(65536):
                 digest.update(chunk)
             handle.seek(0)
             if digest.hexdigest() != asset.checksum:
                 raise ValueError("Сохранённое медиа повреждено.")
-            mime = "image/png" if asset.file.name.endswith(".png") else "image/jpeg"
-            files[f"asset{index}"] = (asset.file.name.rsplit("/", 1)[-1], handle,
+            filename = f"cover-{asset.checksum[:12]}.jpg" if asset.origin == "generated" else asset.file.name.rsplit("/", 1)[-1]
+            mime = "image/png" if filename.endswith(".png") else "image/jpeg"
+            files[f"asset{index}"] = (filename, handle,
                                      mime if asset.kind == "photo" else "video/mp4")
         if not assets:
             method = "sendMessage"

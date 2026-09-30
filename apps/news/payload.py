@@ -5,9 +5,13 @@ from django.conf import settings
 
 
 def publication_hash(publication, rendered=None):
+    media = list(publication.media.values("kind", "position", "url", "media_key", "origin", "checksum"))
+    for asset in media:
+        if asset.pop("origin") != "generated":
+            asset.pop("checksum")  # Keep original-media hashes compatible and cache-independent.
     return sha256(json.dumps({
         "html": publication.rendered if rendered is None else rendered,
-        "media": list(publication.media.values("kind", "position", "url", "media_key")),
+        "media": media,
     }, sort_keys=True).encode()).hexdigest()
 
 

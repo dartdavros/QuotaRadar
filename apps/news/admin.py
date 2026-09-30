@@ -51,7 +51,7 @@ class NewsConfigurationAdmin(admin.ModelAdmin):
 
 class JournalAdmin(admin.ModelAdmin):
     def get_readonly_fields(self, request, obj=None):
-        return tuple(field.name for field in self.model._meta.fields)
+        return tuple(field.name for field in self.model._meta.fields if field.name != "generated_content")
     def has_add_permission(self, request):
         return False
     def has_delete_permission(self, request, obj=None):
