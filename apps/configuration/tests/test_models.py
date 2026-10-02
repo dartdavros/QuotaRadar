@@ -15,8 +15,10 @@ class SystemConfigurationTests(TestCase):
         self.assertEqual(configuration.historical_backfill_post_limit, 100)
         self.assertEqual(configuration.telegram_message_timezone, "Europe/Moscow")
         self.assertEqual(configuration.active_prompt.code, "quota_event_classifier")
-        self.assertEqual(configuration.active_prompt.version, 2)
+        self.assertEqual(configuration.active_prompt.version, 3)
         self.assertIn("доверенных X-источников", configuration.active_prompt.system_prompt)
+        self.assertIn("платных аккаунтов ChatGPT", configuration.active_prompt.system_prompt)
+        self.assertIn("запланированном массовом сбросе", configuration.active_prompt.system_prompt)
 
     def test_post_limits_must_match_x_api_bounds(self) -> None:
         configuration = SystemConfiguration.load()
