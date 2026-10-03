@@ -9,6 +9,7 @@ from apps.configuration.models import SystemConfiguration
 from apps.news.models import NewsConfiguration
 
 from .errors import recent_errors
+from .balance import load_x_balance
 from .news import check_news_collection, check_news_editorial, check_news_publishing
 from .quota import check_ai_analysis, check_telegram_quota, check_x_polling
 from .report import ERROR, Check, Dashboard, clock, headline_for, worst
@@ -37,7 +38,8 @@ def build_dashboard() -> Dashboard:
         logger.exception("Health panel: recent errors could not be loaded.")
         errors = []
     return Dashboard(generated_at=clock(now, config.telegram_message_timezone), level=worst(checks),
-                     headline=headline_for(checks), checks=checks, errors=errors)
+                     headline=headline_for(checks), checks=checks, errors=errors,
+                     x_balance=load_x_balance())
 
 
 def _guard(group: str, check, *args) -> Check:

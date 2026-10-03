@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
 from apps.configuration.http_client import (
@@ -66,12 +67,13 @@ class XApiClient:
         *,
         http_client: SafeHttpClient | None = None,
         bearer_token: str | None = None,
+        timeout_seconds: int = _X_REQUEST_TIMEOUT_SECONDS,
     ) -> None:
         self._owns_http_client = http_client is None
         try:
             self._bearer_token = bearer_token or get_secret(SecretCode.X_BEARER_TOKEN)
             self._http_client = http_client or create_http_client(
-                timeout_seconds=_X_REQUEST_TIMEOUT_SECONDS
+                timeout_seconds=timeout_seconds
             )
         except (
             ExternalHttpConfigurationError,
@@ -96,6 +98,20 @@ class XApiClient:
     def close(self) -> None:
         if self._owns_http_client:
             self._http_client.close()
+
+    def get_credit_balance(self) -> Decimal:
+        """Read the payer's total available USD credits without estimating spend."""
+        payload = self._get_json("/2/usage/credits", params={})
+        data = payload.get("data")
+        if not isinstance(data, dict) or payload.get("errors"):
+            raise XApiResponseError("X credit balance returned malformed data.")
+        value = data.get("total_balance")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise XApiResponseError("X credit balance returned an invalid amount.")
+        balance = Decimal(str(value))
+        if not balance.is_finite() or balance < 0:
+            raise XApiResponseError("X credit balance returned an invalid amount.")
+        return balance
 
     def lookup_users(self, usernames: Sequence[str]) -> dict[str, str]:
         normalized = [username.strip() for username in usernames if username.strip()]

@@ -63,6 +63,7 @@ class Dashboard:
     checks: list[Check]
     errors: list[ErrorRow]
     failure: str = ""            # Set when the panel itself could not be built.
+    x_balance: str = "Недоступен"
 
     @property
     def label(self) -> str:

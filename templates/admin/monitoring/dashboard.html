@@ -20,7 +20,13 @@
           <div class="hp-status-sub">Проверено {{ dashboard.generated_at }}. Каждая загрузка страницы проверяет систему заново.</div>
         </div>
       </div>
-      <a class="hp-refresh" href="">Проверить снова</a>
+      <div class="hp-status-actions">
+        <div class="hp-balance">
+          <span class="hp-balance-label">Баланс X</span>
+          <strong class="hp-balance-value">{{ dashboard.x_balance }}</strong>
+        </div>
+        <a class="hp-refresh" href="">Проверить снова</a>
+      </div>
     </div>
 
     {% for group, checks in dashboard.groups %}
