@@ -16,7 +16,17 @@ test -f "$archive"
 command -v rsync >/dev/null
 
 release_dir=$(mktemp -d "/tmp/quotaradar-release-${GITHUB_SHA}.XXXXXX")
-trap 'sudo rm -rf -- "$release_dir"' EXIT
+deploy_complete=false
+cleanup() {
+  status=$?
+  sudo rm -rf -- "$release_dir"
+  if [ "$status" -eq 0 ] && [ "$deploy_complete" != true ]; then
+    echo 'Deployment script ended before completing the release.' >&2
+    exit 1
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
 sudo tar -xzf "$archive" -C "$release_dir"
 sudo cp "$deploy_dir/.env" "$release_dir/.env"
 sudo cp "$deploy_dir/docker/secrets/master.key" "$release_dir/docker/secrets/master.key"
@@ -34,7 +44,7 @@ cd "$release_dir"
 sudo docker compose -p quotaradar config --quiet
 sudo docker compose -p quotaradar build web
 sudo docker compose -p quotaradar run --rm --no-deps --pull never \
-  --entrypoint python web manage.py check
+  --entrypoint python web manage.py check < /dev/null
 
 cd "$deploy_dir"
 # Wait for warm worker shutdown and bot long polling; never force-kill them.
@@ -52,7 +62,7 @@ sudo rsync -a --delete \
   --exclude='/backups/' --exclude='/media/' --exclude='/staticfiles/' \
   --exclude='/.git/' "$release_dir/" "$deploy_dir/"
 sudo docker compose up --no-deps --no-build --pull never \
-  --abort-on-container-exit --exit-code-from init init
+  --abort-on-container-exit --exit-code-from init init < /dev/null
 sudo docker compose create --no-deps --no-build --pull never "${runtime_services[@]}"
 for service in "${runtime_services[@]}"; do
   container=$(sudo docker compose ps -aq "$service")
@@ -69,9 +79,10 @@ for _ in $(seq 1 90); do
   health=$(sudo docker inspect --format '{{.State.Health.Status}}' "$web_container")
   if [ "$health" = healthy ]; then
     sudo docker compose ps
-    sudo docker compose exec -T web python manage.py diagnose_configuration
+    sudo docker compose exec -T web python manage.py diagnose_configuration < /dev/null
     rm -f -- "$archive"
     echo "Deployed $GITHUB_SHA; rollback files retained in $backup_dir"
+    deploy_complete=true
     exit 0
   fi
   sleep 2
