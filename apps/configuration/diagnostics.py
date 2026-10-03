@@ -8,7 +8,7 @@ from django.conf import settings
 
 from apps.secrets.crypto import SecretDecryptionError
 from apps.secrets.keyring import MasterKeyError, load_master_keyring
-from apps.secrets.models import SecretCode
+from apps.secrets.models import EncryptedSecret, SecretCode
 from apps.secrets.services import SecretNotConfiguredError, get_secret
 
 from .http_client import (
@@ -47,7 +47,9 @@ def _master_key_result() -> DiagnosticResult:
 def _secret_result(code: SecretCode) -> DiagnosticResult:
     try:
         value = get_secret(code)
-    except SecretNotConfiguredError:
+    except (SecretNotConfiguredError, EncryptedSecret.DoesNotExist):
+        if code == SecretCode.PROXY_URL:
+            return DiagnosticResult(code.value, _OK, "прокси отключён, прямое подключение")
         return DiagnosticResult(code.value, _WARNING, "секрет не настроен")
     except SecretDecryptionError:
         return DiagnosticResult(code.value, _ERROR, "секрет не расшифровывается")
@@ -98,12 +100,12 @@ def _proxy_connection_result(test_url: str) -> DiagnosticResult:
         return DiagnosticResult(
             "proxy_connection",
             _ERROR,
-            "внешний запрос через proxy завершился ошибкой",
+            "внешний запрос завершился ошибкой",
         )
     return DiagnosticResult(
         "proxy_connection",
         _OK,
-        f"внешний запрос через proxy выполнен, HTTP {response.status_code}",
+        f"внешний запрос выполнен, HTTP {response.status_code}",
     )
 
 

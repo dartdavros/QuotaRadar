@@ -1,4 +1,4 @@
-"""Mandatory proxy-backed HTTP clients for every external integration."""
+"""Shared HTTP clients with an optional proxy for every external integration."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ _DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
 class ExternalHttpConfigurationError(RuntimeError):
-    """Raised before networking when the mandatory proxy is unavailable."""
+    """Raised before networking when the HTTP configuration is invalid."""
 
 
 class ExternalHttpRequestError(RuntimeError):
@@ -55,14 +55,12 @@ def _build_timeout(timeout_seconds: float | int | None) -> httpx.Timeout:
     )
 
 
-def _load_proxy_url() -> str:
+def _load_proxy_url() -> str | None:
     try:
         proxy_url = get_secret(SecretCode.PROXY_URL)
-    except SecretNotConfiguredError:
-        raise ExternalHttpConfigurationError(
-            "External HTTP access is disabled because proxy_url is not configured."
-        ) from None
-    except (SecretDecryptionError, EncryptedSecret.DoesNotExist):
+    except (SecretNotConfiguredError, EncryptedSecret.DoesNotExist):
+        return None
+    except SecretDecryptionError:
         raise ExternalHttpConfigurationError(
             "External HTTP access is disabled because proxy_url is unavailable."
         ) from None

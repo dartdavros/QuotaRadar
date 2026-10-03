@@ -23,7 +23,7 @@ The system operates without manual moderation. Every published Telegram message 
 ## Features
 
 - official X API v2 integration without scraping or RSS;
-- one mandatory HTTP/HTTPS proxy for X, the LLM provider, and Telegram;
+- one optional HTTP/HTTPS proxy for X, the LLM provider, and Telegram;
 - OpenAI-compatible LLM adapter with structured output;
 - Telegram channel delivery and personal notifications through `/start`, `/stop`, and `/status`;
 - administration through Django Admin;
@@ -42,11 +42,11 @@ The system operates without manual moderation. Every published Telegram message 
                         PostgreSQL
                               ▲
                               │
-X API ── mandatory proxy ─────► Celery Worker ◄── Celery Beat
+X API ── optional proxy ──────► Celery Worker ◄── Celery Beat
                               │
-                              ├── mandatory proxy ──► LLM
+                              ├── optional proxy ──► LLM
                               │
-                              └── mandatory proxy ──► Telegram Bot API
+                              └── optional proxy ──► Telegram Bot API
                                                          │
                                                 ┌────────┴────────┐
                                                 ▼                 ▼
@@ -81,10 +81,10 @@ A self-hosted installation requires:
 - X API v2 access for reading user publications;
 - a Telegram bot;
 - an OpenAI-compatible LLM provider supporting `response_format=json_schema`;
-- an HTTP or HTTPS proxy that can reach X, the LLM provider, and Telegram;
+- direct access to X, the LLM provider, and Telegram, or an HTTP/HTTPS proxy;
 - Python 3 for generating bootstrap secrets.
 
-QuotaRadar does not make direct external requests when the mandatory proxy is not configured.
+When `proxy_url` is disabled or absent, QuotaRadar connects directly. A configured proxy is used for all external requests; an invalid, undecryptable, or unreachable active proxy fails without direct fallback. Environment proxy variables are ignored in both modes.
 
 ## Quick start
 
@@ -202,7 +202,7 @@ Create the following secrets in the **Secrets** section:
 - `telegram_bot_token`;
 - `llm_api_key`;
 - `x_bearer_token`;
-- `proxy_url`.
+- `proxy_url` — optional; leave it disabled for direct external connections.
 
 Supported proxy URL formats:
 
@@ -253,7 +253,7 @@ Without an external request:
 docker compose exec web python manage.py diagnose_configuration
 ```
 
-With a proxy connectivity check:
+With an external connectivity check (configured proxy or direct connection):
 
 ```bash
 docker compose exec web python manage.py diagnose_configuration --test-proxy

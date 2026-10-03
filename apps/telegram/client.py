@@ -1,4 +1,4 @@
-"""Telegram Bot API client using the mandatory proxy-backed HTTP factory."""
+"""Telegram Bot API client using the shared HTTP factory."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class TelegramApiError(RuntimeError):
 
 
 class TelegramConfigurationError(TelegramApiError):
-    """The token or mandatory proxy configuration is unavailable."""
+    """The token or HTTP configuration is unavailable."""
 
 
 class TelegramAuthenticationError(TelegramApiError):

@@ -6,13 +6,13 @@ from apps.configuration.diagnostics import collect_diagnostics
 
 
 class Command(BaseCommand):
-    help = "Check runtime configuration and optionally test external proxy access."
+    help = "Check runtime configuration and optionally test external HTTP access."
 
     def add_arguments(self, parser) -> None:  # type: ignore[no-untyped-def]
         parser.add_argument(
             "--test-proxy",
             action="store_true",
-            help="Perform a HEAD request to the test URL through the configured proxy.",
+            help="Perform a HEAD request using the configured proxy or a direct connection.",
         )
         parser.add_argument(
             "--test-url",

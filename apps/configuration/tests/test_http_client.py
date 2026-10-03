@@ -11,6 +11,8 @@ from apps.configuration.http_client import (
     validate_proxy_url,
 )
 from apps.secrets.services import SecretNotConfiguredError
+from apps.secrets.crypto import SecretDecryptionError
+from apps.secrets.models import EncryptedSecret
 
 
 class ProxyUrlValidationTests(SimpleTestCase):
@@ -30,7 +32,7 @@ class ProxyUrlValidationTests(SimpleTestCase):
 class HttpClientFactoryTests(SimpleTestCase):
     @patch("apps.configuration.http_client.httpx.Client")
     @patch("apps.configuration.http_client.get_secret")
-    def test_creates_client_with_mandatory_proxy(
+    def test_creates_client_with_configured_proxy(
         self,
         get_secret: Mock,
         client_class: Mock,
@@ -45,19 +47,38 @@ class HttpClientFactoryTests(SimpleTestCase):
         self.assertFalse(kwargs["trust_env"])
         self.assertTrue(kwargs["follow_redirects"])
 
-    @patch("apps.configuration.http_client.httpx.Client")
-    @patch("apps.configuration.http_client.get_secret")
-    def test_does_not_attempt_direct_connection_without_proxy(
-        self,
-        get_secret: Mock,
-        client_class: Mock,
-    ) -> None:
-        get_secret.side_effect = SecretNotConfiguredError("missing")
+    def test_both_factories_use_direct_connection_without_configured_proxy(self) -> None:
+        for factory, class_name in (
+            (create_http_client, "Client"),
+            (create_async_http_client, "AsyncClient"),
+        ):
+            for error in (SecretNotConfiguredError, EncryptedSecret.DoesNotExist):
+                with self.subTest(factory=factory.__name__, error=error.__name__):
+                    with (
+                        patch("apps.configuration.http_client.get_secret", side_effect=error("missing")),
+                        patch(f"apps.configuration.http_client.httpx.{class_name}") as client_class,
+                    ):
+                        factory()
+                        self.assertIsNone(client_class.call_args.kwargs["proxy"])
+                        self.assertFalse(client_class.call_args.kwargs["trust_env"])
 
-        with self.assertRaises(ExternalHttpConfigurationError):
-            create_http_client()
-
-        client_class.assert_not_called()
+    def test_both_factories_reject_broken_active_proxy_without_direct_fallback(self) -> None:
+        for factory, class_name in (
+            (create_http_client, "Client"),
+            (create_async_http_client, "AsyncClient"),
+        ):
+            for secret_options in (
+                {"return_value": "socks5://user:password@proxy.example:1080"},
+                {"side_effect": SecretDecryptionError("unavailable")},
+            ):
+                with self.subTest(factory=factory.__name__, options=secret_options):
+                    with (
+                        patch("apps.configuration.http_client.get_secret", **secret_options),
+                        patch(f"apps.configuration.http_client.httpx.{class_name}") as client_class,
+                    ):
+                        with self.assertRaises(ExternalHttpConfigurationError):
+                            factory()
+                        client_class.assert_not_called()
 
     @patch("apps.configuration.http_client.httpx.Client")
     @patch("apps.configuration.http_client.get_secret")

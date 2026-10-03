@@ -1,4 +1,4 @@
-"""Official X API v2 client built on the mandatory proxy-backed HTTP factory."""
+"""Official X API v2 client built on the shared HTTP factory."""
 
 from __future__ import annotations
 

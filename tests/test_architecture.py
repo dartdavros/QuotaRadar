@@ -124,8 +124,10 @@ class DeploymentGuardTests(SimpleTestCase):
             encoding="utf-8"
         )
         self.assertIn("github.ref == 'refs/heads/main'", workflow)
-        self.assertIn("deploy_dir=/opt/quotaradar", workflow)
-        self.assertIn("sudo docker compose up -d --build --remove-orphans", workflow)
+        deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+        self.assertIn("deploy_dir=/opt/quotaradar", deploy)
+        self.assertIn("< scripts/deploy.sh", workflow)
+        self.assertIn("sudo docker compose -p quotaradar build web", deploy)
         self.assertIn("secrets.DEPLOY_HOST", workflow)
         self.assertIn("secrets.DEPLOY_PORT", workflow)
         self.assertIn("secrets.DEPLOY_USER", workflow)
@@ -133,27 +135,31 @@ class DeploymentGuardTests(SimpleTestCase):
         self.assertNotIn("DEPLOY_KNOWN_HOSTS", workflow)
 
     def test_deploy_preserves_runtime_secrets(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn('sudo cp "$deploy_dir/.env" "$release_dir/.env"', workflow)
+        deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+        self.assertIn('sudo cp "$deploy_dir/.env" "$release_dir/.env"', deploy)
         self.assertIn(
             '"$deploy_dir/docker/secrets/master.key"',
-            workflow,
+            deploy,
         )
+        self.assertIn("--exclude='/.env'", deploy)
+        self.assertIn("--exclude='/docker/secrets/*.key'", deploy)
+        self.assertIn("--exclude='/backups/'", deploy)
+        self.assertIn('sudo docker cp -a "$container:/tmp/."', deploy)
+        self.assertNotIn('sudo mv "$deploy_dir"', deploy)
 
     def test_ci_and_deploy_make_compose_secret_readable(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"
         )
         self.assertIn("chmod 0444 docker/secrets/master.key", workflow)
+        deploy = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
         self.assertIn(
             'sudo chmod 0444 "$release_dir/docker/secrets/master.key"',
-            workflow,
+            deploy,
         )
         self.assertNotIn(
             'sudo chmod 600 "$release_dir/docker/secrets/master.key"',
-            workflow,
+            deploy,
         )
 
     def test_reverse_proxy_https_settings_are_enabled(self) -> None:
