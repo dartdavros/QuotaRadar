@@ -63,16 +63,18 @@ sudo rsync -a --delete \
   --exclude='/.git/' "$release_dir/" "$deploy_dir/"
 sudo docker compose up --no-deps --no-build --pull never \
   --abort-on-container-exit --exit-code-from init init < /dev/null
-sudo docker compose create --no-deps --no-build --pull never "${runtime_services[@]}"
+sudo docker compose up --no-start --no-deps --no-build --pull never "${runtime_services[@]}" < /dev/null
+runtime_containers=()
 for service in "${runtime_services[@]}"; do
   container=$(sudo docker compose ps -aq "$service")
+  runtime_containers+=("$container")
   for path in "${runtime_paths[@]}"; do
     if sudo test -e "$backup_dir/$service/$path"; then
       sudo docker cp -a "$backup_dir/$service/$path" "$container:/tmp/"
     fi
   done
 done
-sudo docker compose start "${runtime_services[@]}"
+sudo docker start "${runtime_containers[@]}"
 
 web_container=$(sudo docker compose ps -q web)
 for _ in $(seq 1 90); do
