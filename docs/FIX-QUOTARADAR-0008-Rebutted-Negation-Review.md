@@ -53,9 +53,8 @@
 Тесты используют реальные тексты постов 2113162277688070445, 2109873287853707513,
 2106233145163141249 и 2105672058269212820. Ответы LLM изолированы через `unittest.mock`.
 
-Целевые тесты `test_reset_signals`, `test_series_reset` и `test_reassessment_tasks`
-прошли локально на `quotaradar.test_settings`. `test_series_reset_tasks` требует Redis
-и локально не запускался: Docker Desktop был выключен. Перед выкладкой их нужно
-прогнать в штатном Docker test-сервисе.
+Целевые тесты `test_reset_signals`, `test_series_reset`, `test_reassessment_tasks`
+и `test_series_reset_tasks` прошли в штатном Docker test-сервисе с PostgreSQL и Redis:
+28 тестов, OK.
 
 Production-выкладка не выполнялась и требует отдельного согласования владельца.
