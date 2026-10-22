@@ -21,7 +21,9 @@ from .llm import LlmError, LlmTemporaryError, create_llm_client
 from .locks import source_post_analysis_lock
 from .prompts import PromptConfigurationError, render_prompt
 from .quality import AnalysisQualityError, validate_payload_for_post
+from .reassessment import SuspiciousIrrelevanceError, reassess_irrelevant_response
 from .services import find_successful_analysis, save_successful_analysis
+from .series_reset import SERIES_RESET_MODEL, classify_series_reset
 
 logger = logging.getLogger(__name__)
 
@@ -93,19 +95,33 @@ def _analyze_locked(
     )
     configuration = SystemConfiguration.load()
     raw_response: object | None = None
+    classification_model: str | None = None
     try:
-        prompt = render_prompt(
-            source_post=source_post,
-            configuration=configuration,
-        )
-        with create_llm_client(configuration=configuration) as client:
-            response = client.analyze(
-                system_prompt=prompt.system_prompt,
-                user_prompt=prompt.user_prompt,
+        response = classify_series_reset(source_post)
+        if response is not None:
+            classification_model = SERIES_RESET_MODEL
+            raw_response = response.raw_response
+            validate_payload_for_post(payload=response.payload, source_post=source_post)
+        else:
+            prompt = render_prompt(
+                source_post=source_post, configuration=configuration,
             )
-        record_llm_success()
-        raw_response = response.raw_response
-        validate_payload_for_post(payload=response.payload, source_post=source_post)
+            with create_llm_client(configuration=configuration) as client:
+                response = client.analyze(
+                    system_prompt=prompt.system_prompt, user_prompt=prompt.user_prompt,
+                )
+                record_llm_success()
+                raw_response = response.raw_response
+                validate_payload_for_post(payload=response.payload, source_post=source_post)
+                response = reassess_irrelevant_response(
+                    client=client, prompt=prompt, source_post=source_post, response=response,
+                )
+                raw_response = response.raw_response
+    except SuspiciousIrrelevanceError as exc:
+        return permanent_failure(
+            task=task, source_post=source_post, configuration=configuration,
+            exc=exc, raw_response=exc.raw_response, context=context,
+        )
     except LlmError as exc:
         # Any LLM failure counts: timeout, 429, 5xx, rejected key, dead proxy,
         # unusable answer. Two in a row and the post is warned about without it.
@@ -158,6 +174,7 @@ def _analyze_locked(
         source_post_id=source_post.pk,
         response=response,
         configuration=configuration,
+        model=classification_model,
     )
     queued_deliveries = 0
     if persisted.analysis.is_relevant is True:

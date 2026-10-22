@@ -34,6 +34,7 @@ def save_successful_analysis(
     source_post_id: int,
     response: LlmAnalysisResponse,
     configuration: SystemConfiguration,
+    model: str | None = None,
 ) -> PersistedAnalysis:
     source_post = (
         SourcePost.objects.select_for_update()
@@ -52,7 +53,7 @@ def save_successful_analysis(
         "product": payload.product,
         "title_ru": payload.title_ru or "",
         "message_ru": payload.message_ru or "",
-        "model": configuration.llm_model,
+        "model": model if model is not None else configuration.llm_model,
         "prompt_version": configuration.active_prompt.version,
         "raw_response": response.raw_response,
         "error": "",

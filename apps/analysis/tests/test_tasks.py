@@ -264,6 +264,8 @@ class AnalyzePostFallbackTests(TestCase):
         create_client: Mock,
         _task_queue: Mock,
     ) -> None:
+        self.post.text = self.post.normalized_text = "Codex documentation was updated."
+        self.post.save(update_fields=("text", "normalized_text"))
         record_llm_failure()
         client = Mock()
         client.analyze.return_value = LlmAnalysisResponse(
