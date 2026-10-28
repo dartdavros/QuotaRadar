@@ -98,6 +98,27 @@ class ReassessmentTaskTests(TestCase):
         self.assertEqual(a.raw_response["reassessment_response"]["id"], "review")
         self.assertTrue(MonitoringEvent.objects.filter(error_type="SuspiciousIrrelevanceError").exists())
 
+    def test_repeated_refusal_alerts_the_owner_when_the_chat_is_configured(self, create_client, queue):
+        cfg = SystemConfiguration.load()
+        cfg.reset_alert_chat_id = "-1001234567890"
+        cfg.save(update_fields=("reset_alert_chat_id",))
+        self.configure(create_client, queue, [
+            self.response(False, "initial"), self.response(False, "review"),
+        ])
+        with patch("apps.analysis.reset_alert.TelegramBotApiClient") as client_class:
+            bot = client_class.return_value.__enter__.return_value
+            self.assertEqual(analyze_post.run(self.post.pk)["status"], "failed")
+        queue.assert_not_called()
+        self.assertIn(self.post.text, bot.send_message.call_args.kwargs["text"])
+
+    def test_repeated_refusal_sends_nothing_without_a_configured_chat(self, create_client, queue):
+        self.configure(create_client, queue, [
+            self.response(False, "initial"), self.response(False, "review"),
+        ])
+        with patch("apps.analysis.reset_alert.TelegramBotApiClient") as client_class:
+            self.assertEqual(analyze_post.run(self.post.pk)["status"], "failed")
+        client_class.assert_not_called()
+
     def test_review_unavailable_fails_without_keyword_fallback(self, create_client, queue):
         client = self.configure(create_client, queue, [
             self.response(False, "initial"), LlmTemporaryError("LLM request failed."),

@@ -14,7 +14,9 @@ class MassResetMigrationTests(TestCase):
     def test_customized_v3_is_preserved_when_v4_is_created_and_selected(self):
         cfg = SystemConfiguration.load()
         previous = PromptTemplate.objects.get(code="quota_event_classifier", version=3)
-        PromptTemplate.objects.filter(pk=cfg.active_prompt_id).update(version=40)
+        # Later migrations ship their own versions: move them aside so v4 is built here.
+        PromptTemplate.objects.filter(code="quota_event_classifier", version=5).update(version=50)
+        PromptTemplate.objects.filter(code="quota_event_classifier", version=4).update(version=40)
         PromptTemplate.objects.filter(pk=previous.pk).update(
             system_prompt="Правило владельца.\nЕсли связь публикации с изменением пользовательских лимитов отсутствует, отклони.",
             user_prompt_template="Собственный шаблон: {normalized_text}",
@@ -33,7 +35,7 @@ class MassResetMigrationTests(TestCase):
 
     def test_existing_v4_edits_and_custom_prompt_selection_are_not_overwritten(self):
         cfg = SystemConfiguration.load()
-        current = cfg.active_prompt
+        current = PromptTemplate.objects.get(code="quota_event_classifier", version=4)
         current.system_prompt = "Отредактированный v4 владельца"
         current.save(update_fields=("system_prompt",))
         custom = PromptTemplate.objects.create(

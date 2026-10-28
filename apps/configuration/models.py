@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+
+_ALERT_CHAT_ID_PATTERN = re.compile(r"^-?[0-9]+$|^@[A-Za-z0-9_]{5,32}$")
 
 
 class PromptTemplate(models.Model):
@@ -119,6 +122,15 @@ class SystemConfiguration(models.Model):
         "Количество повторов",
         default=3,
     )
+    reset_alert_chat_id = models.CharField(
+        "Чат для сигналов о неподтверждённом сбросе",
+        max_length=128,
+        blank=True,
+        help_text=(
+            "Числовой chat ID или @username. Пока поле пустое, сигналы не отправляются. "
+            "Это служебное оповещение владельцу, а не публикация для подписчиков."
+        ),
+    )
     active_prompt = models.ForeignKey(
         PromptTemplate,
         verbose_name="Активный промпт",
@@ -143,6 +155,16 @@ class SystemConfiguration(models.Model):
         if self.active_prompt_id and not self.active_prompt.is_active:
             raise ValidationError(
                 {"active_prompt": "Выбранный шаблон промпта должен быть активен."}
+            )
+        chat_id = self.reset_alert_chat_id.strip()
+        self.reset_alert_chat_id = chat_id
+        if chat_id and not _ALERT_CHAT_ID_PATTERN.fullmatch(chat_id):
+            raise ValidationError(
+                {
+                    "reset_alert_chat_id": (
+                        "Укажите числовой chat ID или @username канала, либо оставьте поле пустым."
+                    )
+                }
             )
         try:
             ZoneInfo(self.telegram_message_timezone)

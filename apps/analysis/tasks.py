@@ -22,6 +22,7 @@ from .locks import source_post_analysis_lock
 from .prompts import PromptConfigurationError, render_prompt
 from .quality import AnalysisQualityError, validate_payload_for_post
 from .reassessment import SuspiciousIrrelevanceError, reassess_irrelevant_response
+from .reset_alert import send_reset_review_alert
 from .services import find_successful_analysis, save_successful_analysis
 from .series_reset import SERIES_RESET_MODEL, classify_series_reset
 
@@ -118,10 +119,15 @@ def _analyze_locked(
                 )
                 raw_response = response.raw_response
     except SuspiciousIrrelevanceError as exc:
-        return permanent_failure(
+        # The post is parked, not published: the owner is told so the reset is not lost in silence.
+        failure = permanent_failure(
             task=task, source_post=source_post, configuration=configuration,
             exc=exc, raw_response=exc.raw_response, context=context,
         )
+        send_reset_review_alert(
+            source_post=source_post, configuration=configuration, task_id=task_id(task),
+        )
+        return failure
     except LlmError as exc:
         # Any LLM failure counts: timeout, 429, 5xx, rejected key, dead proxy,
         # unusable answer. Two in a row and the post is warned about without it.

@@ -42,7 +42,7 @@ class SystemConfigurationAdmin(admin.ModelAdmin):
         ),
         (
             "Telegram",
-            {"fields": ("telegram_message_timezone",)},
+            {"fields": ("telegram_message_timezone", "reset_alert_chat_id")},
         ),
         (
             "ИИ-провайдер",
