@@ -59,6 +59,10 @@ class ReassessmentTaskTests(TestCase):
         client.analyze.side_effect = responses
         create_client.return_value.__enter__.return_value = client
         queue.return_value = Mock(delivery_ids=(1,))
+        group_queue = patch("apps.analysis.possible_reset.queue_analysis_deliveries")
+        self.group_queue = group_queue.start()
+        self.group_queue.return_value = Mock(delivery_ids=(1,))
+        self.addCleanup(group_queue.stop)
         return client
 
     def test_negative_then_confirmed_reset_is_saved_and_queued_once(self, create_client, queue):
@@ -81,65 +85,59 @@ class ReassessmentTaskTests(TestCase):
         self.assertEqual(a.raw_response["irrelevance_review"]["initial_response"]["id"], "initial")
         self.assertEqual(a.raw_response["irrelevance_review"]["reassessment_response"]["id"], "review")
 
-    def test_repeated_refusal_is_failed_with_both_responses_and_no_delivery(self, create_client, queue):
+    def test_repeated_refusal_posts_a_possible_reset_to_the_group(self, create_client, queue):
         client = self.configure(create_client, queue, [
             self.response(False, "initial"), self.response(False, "review"),
         ])
         result = analyze_post.run(self.post.pk)
-        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["status"], "possible_reset")
+        self.assertTrue(result["is_relevant"])
         self.assertEqual(client.analyze.call_count, 2)
-        queue.assert_not_called()
-        self.post.refresh_from_db()
-        self.assertEqual(self.post.processing_status, SourcePostProcessingStatus.FAILED)
         a = Analysis.objects.get(source_post=self.post)
-        self.assertIsNone(a.is_relevant)
-        self.assertIn("не подтвердила quota_reset", a.error)
+        self.group_queue.assert_called_once_with(a.pk)
+        self.post.refresh_from_db()
+        self.assertEqual(self.post.processing_status, SourcePostProcessingStatus.ANALYZED_RELEVANT)
+        self.assertTrue(a.is_relevant)
+        self.assertFalse(a.is_fallback)
+        self.assertEqual(a.event_type, "quota_reset")
+        self.assertEqual(a.title_ru, "Codex: ВОЗМОЖНЫЙ СБРОС КВОТ")
+        self.assertEqual(a.message_ru, f"«{self.post.text}»")
         self.assertEqual(a.raw_response["initial_response"]["id"], "initial")
         self.assertEqual(a.raw_response["reassessment_response"]["id"], "review")
         self.assertTrue(MonitoringEvent.objects.filter(error_type="SuspiciousIrrelevanceError").exists())
 
-    def test_repeated_refusal_alerts_the_owner_when_the_chat_is_configured(self, create_client, queue):
-        cfg = SystemConfiguration.load()
-        cfg.reset_alert_chat_id = "-1001234567890"
-        cfg.save(update_fields=("reset_alert_chat_id",))
-        self.configure(create_client, queue, [
+    def test_possible_reset_is_posted_once(self, create_client, queue):
+        client = self.configure(create_client, queue, [
             self.response(False, "initial"), self.response(False, "review"),
         ])
-        with patch("apps.analysis.reset_alert.TelegramBotApiClient") as client_class:
-            bot = client_class.return_value.__enter__.return_value
-            self.assertEqual(analyze_post.run(self.post.pk)["status"], "failed")
-        queue.assert_not_called()
-        self.assertIn(self.post.text, bot.send_message.call_args.kwargs["text"])
+        analyze_post.run(self.post.pk)
+        self.assertEqual(analyze_post.run(self.post.pk)["status"], "already_analyzed")
+        self.assertEqual(client.analyze.call_count, 2)
+        self.assertEqual(Analysis.objects.filter(source_post=self.post).count(), 1)
 
-    def test_repeated_refusal_sends_nothing_without_a_configured_chat(self, create_client, queue):
-        self.configure(create_client, queue, [
-            self.response(False, "initial"), self.response(False, "review"),
-        ])
-        with patch("apps.analysis.reset_alert.TelegramBotApiClient") as client_class:
-            self.assertEqual(analyze_post.run(self.post.pk)["status"], "failed")
-        client_class.assert_not_called()
-
-    def test_review_unavailable_fails_without_keyword_fallback(self, create_client, queue):
+    def test_review_unavailable_posts_a_possible_reset_without_keyword_fallback(self, create_client, queue):
         client = self.configure(create_client, queue, [
             self.response(False, "initial"), LlmTemporaryError("LLM request failed."),
         ])
         with patch("apps.analysis.tasks.deliver_without_llm") as fallback:
             result = analyze_post.run(self.post.pk)
-        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["status"], "possible_reset")
         self.assertEqual(client.analyze.call_count, 2)
-        queue.assert_not_called()
+        self.group_queue.assert_called_once()
         fallback.assert_not_called()
         a = Analysis.objects.get(source_post=self.post)
-        self.assertIn("повторная оценка недоступна", a.error)
+        self.assertEqual(a.title_ru, "Codex: ВОЗМОЖНЫЙ СБРОС КВОТ")
         self.assertFalse(a.is_fallback)
 
-    def test_invalid_review_identity_fails_without_delivery(self, create_client, queue):
+    def test_invalid_review_identity_posts_a_possible_reset(self, create_client, queue):
         self.configure(create_client, queue, [
             self.response(False, "initial"),
             self.response(True, "review", provider="anthropic", product="claude_code"),
         ])
-        self.assertEqual(analyze_post.run(self.post.pk)["status"], "failed")
-        queue.assert_not_called()
+        self.assertEqual(analyze_post.run(self.post.pk)["status"], "possible_reset")
+        a = Analysis.objects.get(source_post=self.post)
+        self.assertEqual((a.provider, a.product), ("openai", "codex"))
+        self.group_queue.assert_called_once()
 
     def test_initial_positive_does_not_need_second_request(self, create_client, queue):
         client = self.configure(create_client, queue, [self.response(True, "initial")])

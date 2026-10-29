@@ -82,7 +82,6 @@ def save_successful_analysis(
     return PersistedAnalysis(analysis=analysis, created=created)
 
 
-@transaction.atomic
 def save_fallback_analysis(
     *,
     source_post_id: int,
@@ -90,6 +89,24 @@ def save_fallback_analysis(
     title: str,
 ) -> Analysis:
     """Persist the keyword warning as the post's analysis so it is delivered once."""
+
+    return save_reset_warning_analysis(
+        source_post_id=source_post_id, configuration=configuration,
+        title=title, message="", is_fallback=True, raw_response=None,
+    )
+
+
+@transaction.atomic
+def save_reset_warning_analysis(
+    *,
+    source_post_id: int,
+    configuration: SystemConfiguration,
+    title: str,
+    message: str,
+    is_fallback: bool,
+    raw_response: object | None,
+) -> Analysis:
+    """Persist a reset warning the application wrote itself, delivered like any analysis."""
 
     source_post = (
         SourcePost.objects.select_for_update()
@@ -106,11 +123,11 @@ def save_fallback_analysis(
         "provider": source_post.source.provider,
         "product": expected_product(source_post.source.provider),
         "title_ru": title,
-        "message_ru": "",
-        "is_fallback": True,
+        "message_ru": message,
+        "is_fallback": is_fallback,
         "model": configuration.llm_model or "unconfigured",
         "prompt_version": configuration.active_prompt.version,
-        "raw_response": None,
+        "raw_response": raw_response,
         "error": "",
     }
     if existing is None:
