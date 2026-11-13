@@ -25,7 +25,7 @@ The system operates without manual moderation. Every published Telegram message 
 - official X API v2 integration without scraping or RSS;
 - one optional HTTP/HTTPS proxy for X, the LLM provider, and Telegram;
 - OpenAI-compatible LLM adapter with structured output;
-- Telegram channel delivery and personal notifications through `/start`, `/stop`, and `/status`;
+- Telegram channel delivery; bot commands direct users to the channel;
 - administration through Django Admin;
 - safe manual import of older publications without resetting the live polling cursor;
 - encrypted storage of tokens, API keys, and the proxy URL in PostgreSQL;
@@ -48,9 +48,8 @@ X API ── optional proxy ──────► Celery Worker ◄── Celery
                               │
                               └── optional proxy ──► Telegram Bot API
                                                          │
-                                                ┌────────┴────────┐
-                                                ▼                 ▼
-                                         Telegram channel   Personal chats
+                                                         ▼
+                                                  Telegram channel
 ```
 
 Docker Compose includes the following services:
@@ -239,11 +238,31 @@ Endpoint pricing, limits, and availability are controlled by X and may change in
    - `@channel_username` or a numeric chat ID;
    - the target enabled.
 
-For self-hosted personal notifications, users open the bot and run `/start`. Available commands:
+Private quota notifications have been retired. `/start`, `/stop`, and `/status`
+return the approved announcement and the channel link, https://t.me/quotaradar.
+These commands do not create or reactivate subscriptions.
 
-- `/start` — enable notifications;
-- `/stop` — disable notifications;
-- `/status` — show the current subscription state.
+Migration `telegram.0005` disables saved private recipients and cancels their
+pending quota deliveries, preserving recipient records and sent history.
+Groups and channels are unaffected. The migration sends no messages.
+
+After deploying, preview the one-time announcement to **all saved private
+recipients**, including users who ran `/stop`:
+
+```bash
+docker compose exec -T web python manage.py announce_private_retirement
+```
+
+Send only after reviewing the preview:
+
+```bash
+docker compose exec -T web python manage.py announce_private_retirement --send
+```
+
+The command records confirmed sends and unavailable chats, respects Telegram
+rate limits, and can resume without repeating recorded outcomes. Network timeouts
+and interrupted sends are held for manual review to avoid duplicates. See
+`docs/FIX-QUOTARADAR-0011-Channel-Only-Notifications.md` for operational details.
 
 ### 8. Run diagnostics
 

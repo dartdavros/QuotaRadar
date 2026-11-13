@@ -43,13 +43,13 @@ class DeliveryServiceTests(TestCase):
 
         self.assertIn("Опубликовано: 20 июля 2026, 10:00 UTC", message)
 
-    def test_fan_out_creates_one_task_per_enabled_target(self) -> None:
+    def test_fan_out_creates_tasks_only_for_enabled_channels(self) -> None:
         analysis = create_relevant_analysis(published_at=timezone.now())
         active_channel = DeliveryTarget.objects.create(
             target_type=DeliveryTargetType.CHANNEL,
             telegram_chat_id="@quota_radar",
         )
-        active_private = DeliveryTarget.objects.create(
+        DeliveryTarget.objects.create(
             target_type=DeliveryTargetType.PRIVATE_CHAT,
             telegram_chat_id="12345",
         )
@@ -58,6 +58,10 @@ class DeliveryServiceTests(TestCase):
             telegram_chat_id="67890",
             enabled=False,
         )
+        DeliveryTarget.objects.create(
+            target_type=DeliveryTargetType.CHANNEL,
+            telegram_chat_id="@quota_disabled", enabled=False,
+        )
 
         with patch("apps.telegram.tasks.deliver_analysis.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
@@ -65,14 +69,13 @@ class DeliveryServiceTests(TestCase):
             with self.captureOnCommitCallbacks(execute=True):
                 second = queue_analysis_deliveries(analysis.pk)
 
-        self.assertEqual(len(first.delivery_ids), 2)
+        self.assertEqual(len(first.delivery_ids), 1)
         self.assertEqual(second.delivery_ids, ())
-        self.assertEqual(Delivery.objects.count(), 2)
+        self.assertEqual(Delivery.objects.count(), 1)
         self.assertEqual(
             {call.args for call in delay.call_args_list},
             {
                 (analysis.pk, active_channel.pk),
-                (analysis.pk, active_private.pk),
             },
         )
 
@@ -171,6 +174,18 @@ class DeliveryRequeueServiceTests(TestCase):
         self.assertEqual(self.delivery.status, DeliveryStatus.FAILED)
         self.assertEqual(self.delivery.attempts, 2)
         self.assertEqual(self.delivery.last_error, "Permanent delivery error.")
+
+    @patch("apps.telegram.tasks.deliver_analysis.delay")
+    def test_private_delivery_cannot_be_requeued(self, delay) -> None:
+        self.target.target_type = DeliveryTargetType.PRIVATE_CHAT
+        self.target.telegram_chat_id = "12345"
+        self.target.save()
+
+        result = requeue_failed_deliveries(delivery_ids=(self.delivery.pk,))
+
+        self.assertEqual(result.queued, 0)
+        self.assertEqual(result.skipped, 1)
+        delay.assert_not_called()
 
     @patch("apps.telegram.tasks.deliver_analysis.delay")
     def test_non_failed_delivery_is_skipped(self, delay) -> None:

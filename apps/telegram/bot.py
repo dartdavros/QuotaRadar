@@ -12,21 +12,9 @@ from .client import (
     TelegramTemporaryError,
     TelegramUpdate,
 )
-from .subscriptions import (
-    SubscriptionConflictError,
-    disable_private_chat,
-    enable_private_chat,
-    get_private_chat_status,
-)
+from .retirement import RETIREMENT_MESSAGE
 
 logger = logging.getLogger(__name__)
-
-_START_ENABLED = "Уведомления QuotaRadar включены."
-_STOP_DISABLED = "Уведомления QuotaRadar отключены."
-_STATUS_ENABLED = "Уведомления QuotaRadar включены."
-_STATUS_DISABLED = "Уведомления QuotaRadar отключены."
-_SUBSCRIPTION_ERROR = "Не удалось изменить подписку QuotaRadar."
-
 
 class TelegramBotRunner:
     """Stateful process loop with process-local idempotent update offset."""
@@ -71,14 +59,10 @@ class TelegramBotRunner:
         command = _extract_command(update.text)
         if command is None:
             return
-        try:
-            reply = _execute_command(command=command, chat_id=update.chat_id)
-        except SubscriptionConflictError:
-            reply = _SUBSCRIPTION_ERROR
-        if reply is None:
+        if command not in {"/start", "/stop", "/status"}:
             return
         try:
-            self._client.send_message(chat_id=update.chat_id, text=reply)
+            self._client.send_message(chat_id=update.chat_id, text=RETIREMENT_MESSAGE)
         except TelegramApiError:
             logger.warning(
                 "Telegram command reply failed for chat_id=%s.", update.chat_id
@@ -90,16 +74,3 @@ def _extract_command(text: str) -> str | None:
     if not token.startswith("/"):
         return None
     return token.split("@", maxsplit=1)[0].casefold()
-
-
-def _execute_command(*, command: str, chat_id: str) -> str | None:
-    if command == "/start":
-        enable_private_chat(chat_id)
-        return _START_ENABLED
-    if command == "/stop":
-        disable_private_chat(chat_id)
-        return _STOP_DISABLED
-    if command == "/status":
-        status = get_private_chat_status(chat_id)
-        return _STATUS_ENABLED if status.enabled else _STATUS_DISABLED
-    return None

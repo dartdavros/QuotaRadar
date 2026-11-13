@@ -13,7 +13,7 @@ from django.utils import timezone
 from apps.analysis.models import Analysis
 from apps.sources.models import Source, SourcePost, SourcePostProcessingStatus
 from apps.sources.routing import quota_sources
-from apps.telegram.models import Delivery, DeliveryStatus
+from apps.telegram.models import Delivery, DeliveryStatus, DeliveryTargetType
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +142,10 @@ def _recover_deliveries() -> tuple[int, int]:
     now = timezone.now()
     cutoff = now - timedelta(seconds=settings.QUOTARADAR_DELIVERY_STALE_SECONDS)
     stale = list(
-        Delivery.objects.filter(status=DeliveryStatus.PENDING)
+        Delivery.objects.filter(
+            status=DeliveryStatus.PENDING,
+            target__target_type=DeliveryTargetType.CHANNEL,
+        )
         .filter(Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lte=now))
         .filter(
             Q(last_attempt_at__lte=cutoff)

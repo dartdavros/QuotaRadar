@@ -28,6 +28,7 @@ from .delivery_state import (
 )
 from .locks import delivery_send_lock
 from .models import Delivery, DeliveryStatus
+from .retirement import PRIVATE_DELIVERY_DISABLED
 from .services import DeliveryMessageError, format_delivery_message
 from .task_support import _retry_or_fail, _result, _task_id
 from apps.advertising.services import (
@@ -95,6 +96,9 @@ def _deliver_locked(
         return _result("uncertain", delivery)
     if delivery.status == DeliveryStatus.FAILED:
         return _result("permanently_failed", delivery)
+    if delivery.target.is_private_chat:
+        mark_failed(delivery.pk, PRIVATE_DELIVERY_DISABLED)
+        return _result("disabled", delivery)
     if delivery.next_attempt_at and delivery.next_attempt_at > timezone.now():
         return _result("retry_scheduled", delivery)
     if not delivery.target.enabled or delivery.target.feed != Feed.QUOTA:

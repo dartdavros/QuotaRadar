@@ -147,6 +147,13 @@ class RecoveryTests(TestCase):
             target=failed_target,
             status=DeliveryStatus.FAILED,
         )
+        private = DeliveryTarget.objects.create(
+            target_type=DeliveryTargetType.PRIVATE_CHAT, telegram_chat_id="12345",
+        )
+        private_pending = Delivery.objects.create(analysis=analysis, target=private)
+        Delivery.objects.filter(pk=private_pending.pk).update(
+            created_at=timezone.now() - timedelta(minutes=20),
+        )
 
         with (
             patch("apps.analysis.tasks.analyze_post.delay"),

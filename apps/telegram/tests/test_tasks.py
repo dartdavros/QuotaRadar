@@ -40,8 +40,8 @@ class DeliverAnalysisTaskTests(TestCase):
     def setUp(self) -> None:
         self.analysis = create_relevant_analysis(published_at=timezone.now())
         self.target = DeliveryTarget.objects.create(
-            target_type=DeliveryTargetType.PRIVATE_CHAT,
-            telegram_chat_id="12345",
+            target_type=DeliveryTargetType.CHANNEL,
+            telegram_chat_id="@quota_tasks",
         )
         self.delivery = Delivery.objects.create(
             analysis=self.analysis,
@@ -147,20 +147,21 @@ class DeliverAnalysisTaskTests(TestCase):
 
     @patch("apps.telegram.tasks.delivery_send_lock", acquired_lock)
     @patch("apps.telegram.tasks.TelegramBotApiClient")
-    def test_permanent_private_chat_error_disables_target(
+    def test_enabled_private_chat_is_never_sent_even_from_old_queue(
         self, client_class: Mock
     ) -> None:
-        client = Mock()
-        client.send_message.side_effect = TelegramPermanentChatError(
-            "Telegram chat is unavailable or rejected the bot."
-        )
-        client_class.return_value.__enter__.return_value = client
+        self.target.target_type = DeliveryTargetType.PRIVATE_CHAT
+        self.target.telegram_chat_id = "12345"
+        self.target.save()
+        self.delivery.next_attempt_at = timezone.now() + timedelta(minutes=5)
+        self.delivery.save()
 
         result = deliver_analysis.run(self.analysis.pk, self.target.pk)
 
-        self.assertEqual(result["status"], "failed")
-        self.target.refresh_from_db()
-        self.assertFalse(self.target.enabled)
+        self.assertEqual(result["status"], "disabled")
+        client_class.assert_not_called()
+        self.delivery.refresh_from_db()
+        self.assertEqual(self.delivery.status, DeliveryStatus.FAILED)
         self.assertFalse(
             MonitoringEvent.objects.filter(status=MonitoringEventStatus.ERROR).exists()
         )
@@ -168,6 +169,8 @@ class DeliverAnalysisTaskTests(TestCase):
     @patch("apps.telegram.tasks.delivery_send_lock", acquired_lock)
     @patch("apps.telegram.tasks.TelegramBotApiClient")
     def test_disabled_private_chat_is_not_an_error(self, client_class: Mock) -> None:
+        self.target.target_type = DeliveryTargetType.PRIVATE_CHAT
+        self.target.telegram_chat_id = "12345"
         self.target.enabled = False
         self.target.save()
 

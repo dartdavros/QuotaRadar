@@ -14,7 +14,7 @@ from apps.monitoring.events import record_monitoring_event
 from apps.monitoring.models import MonitoringComponent, MonitoringEventStatus
 
 from .freshness import stale
-from .models import Delivery, DeliveryStatus, DeliveryTarget
+from .models import Delivery, DeliveryStatus, DeliveryTarget, DeliveryTargetType
 
 from .formatting import DeliveryMessageError, format_delivery_message
 
@@ -56,7 +56,9 @@ def queue_analysis_deliveries(analysis_id: int) -> QueuedDeliveries:
         return QueuedDeliveries(analysis_id=analysis_id, delivery_ids=())
 
     queued_ids: list[int] = []
-    for target in DeliveryTarget.objects.filter(enabled=True, feed=Feed.QUOTA).only("pk"):
+    for target in DeliveryTarget.objects.filter(
+        enabled=True, feed=Feed.QUOTA, target_type=DeliveryTargetType.CHANNEL,
+    ).only("pk"):
         delivery, created = Delivery.objects.get_or_create(
             analysis=analysis,
             target=target,
@@ -104,7 +106,10 @@ def requeue_failed_deliveries(
             "analysis__source_post__source",
             "target",
         )
-        .filter(pk__in=requested_ids, status=DeliveryStatus.FAILED)
+        .filter(
+            pk__in=requested_ids, status=DeliveryStatus.FAILED,
+            target__target_type=DeliveryTargetType.CHANNEL,
+        )
         .order_by("pk")
     )
     queued = 0

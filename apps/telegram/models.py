@@ -162,3 +162,27 @@ class Delivery(models.Model):
 
     def __str__(self) -> str:
         return f"Анализ {self.analysis_id} → {self.target.telegram_chat_id}"
+
+
+class RetirementNoticeStatus(models.TextChoices):
+    PENDING = "pending", "Ожидает"
+    SENDING = "sending", "Отправка начата"
+    SENT = "sent", "Отправлено"
+    UNREACHABLE = "unreachable", "Чат недоступен"
+    UNCERTAIN = "uncertain", "Результат неизвестен"
+
+
+class PrivateChatRetirementNotice(models.Model):
+    """One retirement announcement per saved private recipient, independent of subscription."""
+
+    target = models.OneToOneField(DeliveryTarget, on_delete=models.PROTECT)
+    status = models.CharField(
+        max_length=16, choices=RetirementNoticeStatus.choices,
+        default=RetirementNoticeStatus.PENDING,
+    )
+    attempts = models.PositiveIntegerField(default=0)
+    telegram_message_id = models.CharField(max_length=64, blank=True)
+    last_error = models.TextField(blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
